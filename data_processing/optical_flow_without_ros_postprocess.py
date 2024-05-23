@@ -127,19 +127,29 @@ def main(args):
         print(f"The path '{folder_path}' is not a directory.")
         return
 
-    # Loop through each file in the directory
+    # for entry in os.listdir(args.folder_path):
+        # full_path = os.path.join(args.folder_path, entry)
+        # if os.path.isdir(full_path):
+            # print(f"Directory: {entry}")
+
+    # Loop through each file in each folder in the directory
     max_combined_list = []
     quartile_combined_list = []
     filename_list = []
-    for file_name in os.listdir(args.folder_path):
-        # Get the full path of the file
-        file_path = os.path.join(args.folder_path, file_name)
-        # Check if the path is a file (not a directory)
-        if os.path.isfile(file_path):
-            filename_list.append(file_name)
-            max_arr, quartile_arr = denseOpticalFlow(file_path, file_name)
-            max_combined_list.append(max_arr)
-            quartile_combined_list.append(quartile_arr)
+    labels_list = []
+    for entry in os.listdir(args.folder_path): # for each folder (no_layers, one_layer, two_layers)
+        subfolder_path = os.path.join(args.folder_path, entry)
+        num_layers = entry.split('_')[0] # format: no, one, two
+        for file_name in os.listdir(subfolder_path):
+            # Get the full path of the file
+            file_path = os.path.join(subfolder_path, file_name)
+            # Check if the path is a file (not a directory)
+            if os.path.isfile(file_path):
+                labels_list.append(num_layers)
+                filename_list.append(file_name)
+                max_arr, quartile_arr = denseOpticalFlow(file_path, file_name)
+                max_combined_list.append(max_arr)
+                quartile_combined_list.append(quartile_arr)
 
     min_length = min(len(arr) for arr in max_combined_list)
     max_combined_arr = np.vstack([arr[:min_length] for arr in max_combined_list]) # shape: num vids x num frames + 1
@@ -147,27 +157,28 @@ def main(args):
 
     # save labels and average 10 max magnitudes (at each sampled frame) in the output CSV file
     labels = np.zeros((len(filename_list),1))
-    for i in range(len(filename_list)):
-        if filename_list[i][:-16] == 'no':
+    for i in range(len(labels_list)):
+        if labels_list[i] == 'no':
             labels[i] = int(0)
-        elif filename_list[i][:-16] == 'one':
+        elif labels_list[i] == 'one':
             labels[i] = int(1)
-        elif filename_list[i][:-16] == 'two':
+        elif labels_list[i] == 'two':
             labels[i] = int(2)
-        elif filename_list[i][:-16] == "three": 
-            labels[i] = int(3)
         else:
-            labels[i] = int(4)
-    labeled_mags = np.hstack((labels, max_combined_arr)) 
-    np.savetxt('labeled_max_mag.csv',labeled_mags, delimiter=',')
+            labels[i] == int(3)
+    labeled_mags = np.hstack((labels, max_combined_arr))
+    np.savetxt('labeled_max_mag.csv', labeled_mags, delimiter=',')
     
     # Plotting
     frames = np.arange(max_combined_arr.shape[1])
     if len(filename_list) == 1:
         plt.figure(figsize=(10,6))
         for i in range(max_combined_arr.shape[0]):
-            plt.plot(frames, max_combined_arr[i,:], label=f'Average of max {num_max} magnitudes for {filename_list[i][:-10]}')
-            plt.plot(frames, quartile_combined_arr[i,:], label=f'{percentile}% percentile magnitude for {filename_list[i][:-10]}')
+            layers_label = filename_list[i].split('_')[2].split('.')[0]
+            plt.plot(frames, max_combined_arr[i,:], label=f'Average of max {num_max} magnitudes for {layers_label}')
+            plt.plot(frames, quartile_combined_arr[i,:], label=f'{percentile}% percentile magnitude for {layers_label}')
+            # plt.plot(frames, max_combined_arr[i,:], label=f'Average of max {num_max} magnitudes for {filename_list[i][:-10]}')
+            # plt.plot(frames, quartile_combined_arr[i,:], label=f'{percentile}% percentile magnitude for {filename_list[i][:-10]}')
         plt.title(f'{filename_list[i][:-10]} \nFrame Comparison Rate: {comparison_rate:.2f} Hz')
         plt.show()
 
@@ -175,7 +186,9 @@ def main(args):
     # Plot average of specified number of maximum magnitudes
         plt.figure(figsize=(10,6))
         for i in range(max_combined_arr.shape[0]):
-            plt.plot(frames, max_combined_arr[i,:], label=filename_list[i][:-10])
+            layers_label = filename_list[i].split('_')[2].split('.')[0]
+            plt.plot(frames, max_combined_arr[i,:], label=layers_label)
+            # plt.plot(frames, max_combined_arr[i,:], label=filename_list[i][:-10])
         plt.title(f'Average of Max {num_max} Magnitudes \nFrame Comparison Rate: {comparison_rate:.2f} Hz')
         plt.xlabel('Frame')
         plt.ylabel('Optical Flow Magnitude')
@@ -186,7 +199,9 @@ def main(args):
         # Plot specified percentile magnitudes
         plt.figure(figsize=(10,6))
         for i in range(max_combined_arr.shape[0]):
-            plt.plot(frames, quartile_combined_arr[i,:], label=filename_list[i][:-10])
+            layers_label = filename_list[i].split('_')[2].split('.')[0]
+            plt.plot(frames, quartile_combined_arr[i,:], label=layers_label)
+            # plt.plot(frames, quartile_combined_arr[i,:], label=filename_list[i][:-10])
         plt.title(f'{percentile}% percentile Magnitude \nFrame Comparison Rate: {comparison_rate:.2f} Hz')
         plt.xlabel('Frame')
         plt.ylabel('Optical Flow Magnitude')
