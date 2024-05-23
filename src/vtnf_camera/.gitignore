@@ -1,0 +1,3 @@
+capture_data/
+vtnf_camera/Img2Depth/*.pth
+test/
