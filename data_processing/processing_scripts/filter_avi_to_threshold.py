@@ -11,6 +11,19 @@ def filter_data(input_file, threshold=-1.25):
     
     return index_threshold
 
+def filter_csv_data(input_file, output_file, threshold=-1.25):
+    # Load the CSV file
+    data = pd.read_csv(input_file)
+    
+    # Find the first occurrence where force_x exceeds the threshold
+    index_threshold = data[data['force_x'] > threshold].index[0]
+    
+    # Keep all rows after this index
+    filtered_data = data.iloc[index_threshold:]
+    
+    # Save the filtered data to a new CSV file
+    filtered_data.to_csv(output_file, index=False)
+
 def process_video(input_video, output_video, start_frame):
     # Open the input video
     cap = cv2.VideoCapture(input_video)
@@ -43,11 +56,11 @@ def process_video(input_video, output_video, start_frame):
     cap.release()
     out.release()
 
-def process_files(input_dir, output_dir, wrench_dir, wrench_prefix='wrench_data_', video_prefix='video_', output_video_prefix='filtered_video_', threshold=-1.25):
+def process_files(input_dir, output_dir, wrench_dir, wrench_prefix='wrench_data_', video_prefix='output_', output_video_prefix='filtered_video_', threshold=-1.25):
     # Ensure output directory exists
     os.makedirs(output_dir, exist_ok=True)
     
-    trial_num = 1
+    trial_num = 20
     while True:
         input_csv = os.path.join(wrench_dir, f'{wrench_prefix}{trial_num}.csv')
         input_video = os.path.join(input_dir, f'{video_prefix}{trial_num}.avi')
@@ -61,7 +74,8 @@ def process_files(input_dir, output_dir, wrench_dir, wrench_prefix='wrench_data_
         trial_num += 1
 
 # Example usage
-wrench_dir = 'wrench_data'
-input_dir = 'vids'
-output_dir = 'filtered_vids'
+layer_str = 'two_layers'
+wrench_dir = f'tests_5_23/wrench_data/{layer_str}'
+input_dir = f'tests_5_23/output_videos/{layer_str}'
+output_dir = f'output_tests_5_23/video_data/{layer_str}'
 process_files(input_dir, output_dir, wrench_dir)
