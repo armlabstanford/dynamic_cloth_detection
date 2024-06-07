@@ -19,9 +19,18 @@ from rclpy.node import Node
 import os, re
 import threading
 from geometry_msgs.msg import WrenchStamped, Vector3
+from sensor_msgs.msg import JointState
+import rosbag2_py
+from rclpy.serialization import serialize_message, deserialize_message
+import pandas as pd
+import csv
+from rosidl_runtime_py.utilities import get_message
+import rosbag2_py
+from rosbags.rosbag2 import Reader
+from rosbags.typesys import Stores, get_typestore
+from rosbags.serde import deserialize_cdr
 
-
-from .utils.utils import get_video_device_number
+# from .utils.utils import get_video_device_number
 from .Img2Depth.img2depthforce import getDepth, getForce
 from .Img2Depth.networks.DenseNet import DenseDepth
 from .Img2Depth.networks.STForce import DenseNet_Force
@@ -36,20 +45,56 @@ class camPublisher(Node):
         os.chdir(os.path.join(path_base, "src/vtnf_camera/vtnf_camera/"))
 
         self.get_logger().info(f"Initializing DT V2 Cam Publisher Node...")
+
         self.declare_parameter('camera_id', '0')  # Default value if not provided
         self.declare_parameter('sensornum', '0')  # Default value if not provided
+        self.declare_parameter('num_layers', '0')  # Default value if not provided
+        self.declare_parameter('trial_num', '0')  # Default value if not provided
 
-        self.camera_id = self.get_parameter('camera_id').get_parameter_value().string_value
+        self.camera_id = int(self.get_parameter('camera_id').get_parameter_value().string_value)
         self.sensornum = int(self.get_parameter('sensornum').get_parameter_value().string_value)
+        self.num_layers = int(self.get_parameter('num_layers').get_parameter_value().string_value)
+        self.trial_num = int(self.get_parameter('trial_num').get_parameter_value().string_value)
+        print (f"dtv2_device_number: {self.camera_id}")
 
-        print ("dtv2_device_number: ", self.camera_id)
-        self.camera_id = int(self.camera_id)
+        # rosbag directory
+        self.rosbag_save_dir = f'/home/armlab/Documents/soft_manipulation/bag_files/{self.num_layers}_layer'
+        if not os.path.exists(self.rosbag_save_dir):
+            os.makedirs(self.rosbag_save_dir)
+
+        # rosbag writer
+        self._writer = rosbag2_py.SequentialWriter()
+        storage_options = rosbag2_py._storage.StorageOptions(uri = self.rosbag_save_dir + f'/bag_{self.trial_num}',
+                                                             storage_id='sqlite3')
+        converter_options = rosbag2_py._storage.ConverterOptions('', '')
+        self._writer.open(storage_options, converter_options)
+        force_topic_info = rosbag2_py._storage.TopicMetadata(name='/RunCamera/force',
+                                                             type="geometry_msgs/msg/WrenchStamped",
+                                                             serialization_format='cdr')
+        self._writer.create_topic(force_topic_info)        
+
+        joint_state_topic_info = rosbag2_py._storage.TopicMetadata(name='/dxl_joint_states',
+                                                                   type='sensor_msgs/msg/JointState',
+                                                                   serialization_format='cdr')
+        self._writer.create_topic(joint_state_topic_info)
+
+        self.joint_states_sub = self.create_subscription(
+            JointState,
+            '/dxl_joint_states',
+            self.joint_states_callback,
+            10)
+        joint_state_msg = JointState()
+        joint_state_msg.header.stamp = self.get_clock().now().to_msg()
+        joint_state_msg.name = ['joint1', 'joint2', 'joint3', 'joint4']
+        joint_state_msg.position = [np.NaN, np.NaN, np.NaN, np.NaN]
+        self.curr_joint_state_msg = joint_state_msg
 
         queue_size = 1
         self.pub_dtv2 = self.create_publisher(Image, 'vtnf/camera_{}'.format(self.camera_id), queue_size)
         if self.sensornum == 1: # publish the depth image if it is sensor 1
             self.pub_dtv2_depth = self.create_publisher(Image, 'vtnf/depth', queue_size)
             self.force_pub = self.create_publisher(WrenchStamped, '/RunCamera/force', queue_size)
+
 
         self.br = CvBridge()
 
@@ -155,9 +200,9 @@ class camPublisher(Node):
             print(self.cap.get(cv2.CAP_PROP_SETTINGS))
             print(self.cap.get(cv2.CAP_PROP_FPS))
 
-            current_time = datetime.datetime.now()
-            timestamp = current_time.strftime('%m%d_%H%M%S')
-            self.out = cv2.VideoWriter(f'/home/armlab/Documents/soft_manipulation/output_videos/output_{timestamp}_{self.camera_id}.avi', fourcc, 10.0, (1024, 768))
+            # current_time = datetime.datetime.now()
+            # timestamp = current_time.strftime('%m%d_%H%M%S')
+            self.out = cv2.VideoWriter(f'/home/armlab/Documents/soft_manipulation/output_videos/{self.num_layers}_layer/output_{self.trial_num}.avi', fourcc, 10.0, (1024, 768))
 
         else:
             self.capture_thread = threading.Thread(target=self.capture_and_publish)
@@ -170,8 +215,23 @@ class camPublisher(Node):
             10)
         self.subscription  # prevent unused variable warning
 
+    def joint_states_callback(self, msg):
+        self.curr_joint_state_msg = msg
+
     def flag_callback(self, msg):
         if msg.data:
+            # close rosbag writer
+            self._writer.close()
+            del self._writer
+
+            # save data from rosbag to csv
+            bag_name = self.rosbag_save_dir + f'/bag_{self.trial_num}'
+            force_csv_filename = f'/home/armlab/Documents/soft_manipulation/wrench_data/{self.num_layers}_layer/wrench_data_{self.trial_num}.csv'
+            joint_states_csv_filename = f'/home/armlab/Documents/soft_manipulation/joint_state_data/{self.num_layers}_layer/joint_states_{self.trial_num}.csv'
+            self.read_rosbag_to_csv(bag_name, '/RunCamera/force', force_csv_filename)
+            self.read_rosbag_to_csv(bag_name, '/dxl_joint_states', joint_states_csv_filename)
+
+            # shutdown node
             self.get_logger().info('Shutdown flag received, shutting down...')
             self.get_logger().info('Frames captured: {}'.format(self.num_frames))
             self.get_logger().info(f'Time elapsed: {time.time() - self.start_time} seconds')
@@ -204,6 +264,16 @@ class camPublisher(Node):
                     wrench_stamped_msg.wrench.force = Vector3(x=forceEst[0], y=forceEst[1], z=forceEst[2])
                     wrench_stamped_msg.wrench.torque = Vector3(x=forceEst[3], y=forceEst[4], z=forceEst[5])
                     self.force_pub.publish(wrench_stamped_msg)
+
+                    # Write wrench data to rosbag
+                    self._writer.write('/RunCamera/force',
+                                        serialize_message(wrench_stamped_msg),
+                                        self.get_clock().now().nanoseconds)
+                    
+                    # Write joint state data to rosbag
+                    self._writer.write('/dxl_joint_states',
+                                        serialize_message(self.curr_joint_state_msg),
+                                        self.get_clock().now().nanoseconds)
         else:
             self.get_logger().error('Failed to capture frame')
 
@@ -314,12 +384,103 @@ class camPublisher(Node):
                 wrench_stamped_msg.wrench.torque = Vector3(*forceEst[3:])
                 self.force_pub.publish(wrench_stamped_msg)
 
-
-
-
             end_time = time.time()
 
 
+    def read_rosbag_to_csv(self, bag_file, topic_name, output_csv):
+
+        # Initialize the rosbag2 reader
+        storage_options = rosbag2_py.StorageOptions(uri=bag_file, storage_id='sqlite3')
+        converter_options = rosbag2_py.ConverterOptions(
+            input_serialization_format='cdr',
+            output_serialization_format='cdr'
+        )
+        reader = rosbag2_py.SequentialReader()
+        reader.open(storage_options, converter_options)
+
+        # Get topic information
+        topics_and_types = reader.get_all_topics_and_types()
+        topic_type = None
+        for topic in topics_and_types:
+            if topic.name == topic_name:
+                topic_type = topic.type
+                break
+
+        if topic_type is None:
+            self.get_logger().info(f"Topic {topic_name} not found in the bag file.")
+            return
+
+        # Get the message type
+        msg_type = get_message(topic_type)
+
+        # Prepare the CSV file
+        data = []
+        if topic_name == '/RunCamera/force':
+            self.get_logger().info(f"Writing {topic_name} data to {output_csv}")
+            columns = ['timestamp', 'force_x', 'force_y', 'force_z', 'torque_x', 'torque_y', 'torque_z']
+
+            while reader.has_next():
+                (topic, data_raw, t) = reader.read_next()
+                if topic == '/RunCamera/force':
+                    msg = deserialize_message(data_raw, msg_type)
+                    timestamp = t
+                    force_x = msg.wrench.force.x
+                    force_y = msg.wrench.force.y
+                    force_z = msg.wrench.force.z
+                    torque_x = msg.wrench.torque.x
+                    torque_y = msg.wrench.torque.y
+                    torque_z = msg.wrench.torque.z
+
+                    data.append([timestamp, force_x, force_y, force_z, torque_x, torque_y, torque_z])
+
+        elif topic_name == '/dxl_joint_states':
+            self.get_logger().info(f"Writing {topic_name} data to {output_csv}")
+            columns = ['timestamp', 'joint_pos_1', 'joint_pos_2', 'joint_pos_3', 'joint_pos_4']
+        
+            while reader.has_next():
+                (topic, data_raw, t) = reader.read_next()
+                if topic == '/dxl_joint_states':
+                    msg = deserialize_message(data_raw, msg_type)
+                    timestamp = t
+                    joint_pos_1 = msg.position[0]
+                    joint_pos_2 = msg.position[1]
+                    joint_pos_3 = msg.position[2]
+                    joint_pos_4 = msg.position[3]
+
+                    data.append([timestamp, joint_pos_1, joint_pos_2, joint_pos_3, joint_pos_4])
+
+        # Save to CSV
+        df = pd.DataFrame(data, columns=columns)
+        df.to_csv(output_csv, index=False)
+        self.get_logger().info(f"{topic_name} data has been written to {output_csv}")
+
+
+    # read rosbag of wrench data and save to csv
+    # def read_rosbag_to_csv(self, rosbag_dir, topic, csv_file):
+    #     # self._readerSetup()
+    #     typestore = get_typestore(Stores.LATEST)
+    #     with Reader(rosbag_dir) as ros2_reader:
+    #         with open(csv_file, mode='w', newline='') as file:
+    #             csv_writer = csv.writer(file)
+    #             # Write the header row
+    #             csv_writer.writerow(['timestamp', 'force_x', 'force_y', 'force_z', 'torque_x', 'torque_y', 'torque_z'])
+
+    #             ros2_conns = [x for x in ros2_reader.connections]
+    #             ros2_messages = ros2_reader.messages(connections=ros2_conns)
+    #             for m, msg in enumerate(ros2_messages):
+    #                 (connection, timestamp, rawdata) = msg
+    #                 if (connection.topic == topic):
+    #                     data = typestore.deserialize_cdr(rawdata, connection.msgtype)
+    #                     force = data.wrench.force
+    #                     torque = data.wrench.torque
+                        
+    #                     # Write the data to the CSV file
+    #                     csv_writer.writerow([
+    #                         timestamp,
+    #                         force.x, force.y, force.z,
+    #                         torque.x, torque.y, torque.z
+    #                     ])
+                    
 
 
 def main(args=None):
@@ -331,9 +492,9 @@ def main(args=None):
     cam_pub = camPublisher()
 
     rclpy.spin(cam_pub)
-    cam_pub.capture_thread.join()
+    # cam_pub.capture_thread.join()
     cam_pub.destroy_node()
-    rclpy.shutdown()
+    # rclpy.shutdown()
 
 
 if __name__ == '__main__':

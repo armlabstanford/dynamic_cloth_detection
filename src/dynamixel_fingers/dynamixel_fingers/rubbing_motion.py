@@ -43,7 +43,8 @@ class DynamixelFinger(Node):
 
         # self.zero_pose = np.array([1.53401154e-03 , -4.65869983e+00 , 3.37474756e-02 , 1.57233022e+00])
         self.zero_pose = np.array([0.0, 0.0, 0.0, 0.0])
-        self.prev_pos = self.pos = self.curr_pos = self.zero_pose
+        self.prev_pos = self.zero_pose
+        self.curr_pos = self.zero_pose
 
         #Enables position-current control mode and the default parameters, it commands a position and then caps the current so the motors don't overload
         self.dxl_client.sync_write(motors, np.ones(len(motors))*5, 11, 1)
@@ -64,6 +65,25 @@ class DynamixelFinger(Node):
             10)
         
         self.force_x = -10.0
+
+        # #Create joint states publisher
+        self.angle_pub = self.create_publisher(JointState, '/dxl_joint_states', 10)
+        self.timer = self.create_timer(0.1, self.publish_joint_states)
+
+    #Publish joint states
+    def publish_joint_states(self):
+        joint_state_msg = JointState()
+        joint_state_msg.header.stamp = self.get_clock().now().to_msg()
+        joint_state_msg.name = ['joint1', 'joint2', 'joint3', 'joint4']
+        # joint_state_msg.position = self.read_pos().tolist()
+        joint_state_msg.position = self.curr_pos.tolist()
+        # joint_state_msg.position = (self.dxl_client.read_pos() - self.zero_pose).tolist()
+        # self.get_logger().info(f'JOINT STATES: {joint_state_msg}')
+        # joint_state_msg.velocity = self.read_vel().tolist()
+        # joint_state_msg.velocity = self.dxl_client.read_vel().tolist()
+        # joint_state_msg.effort = self.read_cur().tolist()
+        # joint_state_msg.effort = self.dxl_client.read_cur().tolist()
+        self.angle_pub.publish(joint_state_msg)
 
     def force_callback(self, msg):
         #self.get_logger().info(f'CALLED CALLBACK')
@@ -115,13 +135,13 @@ class DynamixelFinger(Node):
         steps = 100  # number of interpolation steps
         for step in range(steps):
             self.get_logger().info(f'Force x {self.force_x}')
-            if self.force_x > -1.25: # TODO: CHANGE THRESHOLD IF NOT GOOD LATER ON
+            # if self.force_x > -1.25: # TODO: CHANGE THRESHOLD IF NOT GOOD LATER ON
+            if self.force_x > -1.03: # TODO: CHANGE THRESHOLD IF NOT GOOD LATER ON
                 self.get_logger().info('Grasping threshold met')
                 break
             interpolated_pose = self.curr_pos + (des_pose - self.curr_pos) * (step / steps)
             self.set_pose(interpolated_pose)
             time.sleep(0.05)  # small delay for each step
-        
         
         #self.move_to_pose([-0.45, 1.8, 0.45, -1.8])
 

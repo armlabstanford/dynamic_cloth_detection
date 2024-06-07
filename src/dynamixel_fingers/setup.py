@@ -26,6 +26,7 @@ setup(
     entry_points={
         'console_scripts': [
             'optical_flow_ros = dynamixel_fingers.optical_flow_ros:main',
+            'rub_test = dynamixel_fingers.rub_test:main',
             'rubbing_motion = dynamixel_fingers.rubbing_motion:main',
             'save_wrench_data = dynamixel_fingers.save_wrench_data:main',
             'depth_vid_saver = dynamixel_fingers.depth_vid_saver:main',

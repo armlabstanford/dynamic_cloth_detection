@@ -71,7 +71,7 @@ class DynamixelClient:
 
     def __init__(self,
                  motor_ids: Sequence[int],
-                 port: str = '/dev/ttyUSB0',
+                 port: str = '/dev/ttyACM0',
                  baudrate: int = 1000000,
                  lazy_connect: bool = False,
                  pos_scale: Optional[float] = None,

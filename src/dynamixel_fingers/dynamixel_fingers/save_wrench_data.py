@@ -11,11 +11,13 @@ class WrenchSaver(Node):
         super().__init__('wrench_saver')
         
         # Declare parameters for CSV saving
+        self.declare_parameter('num_layers', '0')  # default value
         self.declare_parameter('trial_num', '0')  # default value
         
         # Get parameters
+        self.num_layers = self.get_parameter('num_layers').get_parameter_value().string_value
         self.trial_num = self.get_parameter('trial_num').get_parameter_value().string_value
-        self.csv_filename = "/home/armlab/Documents/soft_manipulation//wrench_data/wrench_data_" + self.trial_num + ".csv"
+        self.csv_filename = "/home/armlab/Documents/soft_manipulation/wrench_data/" + self.num_layers + "_layer/wrench_data_" + self.trial_num + ".csv"
         
         # Create subscriber to WrenchStamped topic
         self.subscription = self.create_subscription(
