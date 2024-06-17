@@ -39,7 +39,11 @@ def update_flow(num, flows, ax):
     ax.set_title(f"Frame {num+1}")
 
 # Main part of the script
-video_path = 'videos/tests_silk/no_layer_0_raw.avi'  # Change this to your video file path
+# video_path = 'videos/tests_silk/no_layer_0_raw.avi'  # Change this to your video file path
+l = '2_layer'
+f = 'output_0'
+file_save_dir = "threshold_1.5_period_2.0"
+video_path = f'/home/armlab/Documents/soft_manipulation/{file_save_dir}/output_videos/calibrated_cam/{l}/{f}.avi'
 flows = load_and_compute_optical_flow(video_path)
 
 fig, ax = plt.subplots()

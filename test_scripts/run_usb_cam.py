@@ -23,6 +23,8 @@ def main():
 
     # Set camera resolution (width, height)
     set_camera_resolution(cap, 640, 480)  # Example resolution; modify as needed
+    
+    # cap.set(cv2.CAP_PROP_FPS, 30)
 
     # Variables to calculate the actual frame rate
     frame_count = 0

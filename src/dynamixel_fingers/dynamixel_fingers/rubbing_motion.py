@@ -65,6 +65,15 @@ class DynamixelFinger(Node):
             10)
         
         self.force_x = -10.0
+        self.force_y = 10.0
+        self.force_z = 10.0
+        self.force_x_hist = []
+
+        self.declare_parameter('force_threshold', '1.4')  # Default value if not provided
+        self.declare_parameter('T', '4.0')  # Default value if not provided
+
+        self.force_threshold = -1*float(self.get_parameter('force_threshold').get_parameter_value().string_value)
+        self.T = float(self.get_parameter('T').get_parameter_value().string_value)
 
         # #Create joint states publisher
         self.angle_pub = self.create_publisher(JointState, '/dxl_joint_states', 10)
@@ -88,6 +97,8 @@ class DynamixelFinger(Node):
     def force_callback(self, msg):
         #self.get_logger().info(f'CALLED CALLBACK')
         self.force_x = msg.wrench.force.x
+        self.force_y = msg.wrench.force.y
+        self.force_z = msg.wrench.force.z
     
     #Receive pose and control finger
     def set_pose(self, pose):
@@ -131,19 +142,41 @@ class DynamixelFinger(Node):
     
     #go to grasping position
     def grasp(self):
-        des_pose = np.array([-0.45, 1.8, 0.45, -1.8])
-        steps = 100  # number of interpolation steps
+        des_pose = np.array([-0.35, 1.8, 0.35, -1.8])
+        # des_pose = np.array([-0.35, 2.0, 0.3, -1.8])
+        steps = 150  # number of interpolation steps
+
+        # x_threshold = -1.3
+        # x_threshold = -1.4
+        # x_threshold = -1.5
+        hist_length = 20
+        self.get_logger().info(f'Force threshold {self.force_threshold}')
+
         for step in range(steps):
             self.get_logger().info(f'Force x {self.force_x}')
-            # if self.force_x > -1.25: # TODO: CHANGE THRESHOLD IF NOT GOOD LATER ON
-            if self.force_x > -1.03: # TODO: CHANGE THRESHOLD IF NOT GOOD LATER ON
-                self.get_logger().info('Grasping threshold met')
-                break
+            # self.get_logger().info(f'Force y {self.force_y}')
+            # self.get_logger().info(f'Force z {self.force_z}')
+
+            if len(self.force_x_hist) >= hist_length:
+                self.force_x_hist.pop(0)  # Remove the oldest value
+            self.force_x_hist.append(self.force_x)
+
+            if len(self.force_x_hist) >= hist_length:
+                self.get_logger().info(f'FORCE HIST FULL')
+                force_x_avg = np.mean(self.force_x_hist)
+                
+                # if self.force_y < 0.95:
+                if np.abs(force_x_avg - self.force_threshold) < 0.01 or force_x_avg > self.force_threshold:
+                    self.get_logger().info('Grasping threshold met')
+                    break
+
             interpolated_pose = self.curr_pos + (des_pose - self.curr_pos) * (step / steps)
             self.set_pose(interpolated_pose)
             time.sleep(0.05)  # small delay for each step
+        self.get_logger().info('Final Pose Reached')
+
         
-        #self.move_to_pose([-0.45, 1.8, 0.45, -1.8])
+        # self.move_to_pose([-0.35, 1.5, 0.45, -1.8])
 
 
     # def roll(self, duration):
@@ -157,15 +190,18 @@ class DynamixelFinger(Node):
     #             break
     
     #roll upper joints back and forth (opp directions on each finger) for specified duration (in seconds)
-    def roll(self, duration):
+    def roll(self):
         start_time = time.time()
         original_pose = self.curr_pos
         #sin wave parameters
         A = 0.12
-        T = 2
+        # T = 2
+        # T = 4
+        # T = 6
+        duration = 4*self.T
         while True:
             curr_time = time.time() - start_time
-            self.set_pose(original_pose + np.array([0, A*np.sin((6.28/T)*curr_time), 0, A*np.sin((6.28/T)*curr_time)]))
+            self.set_pose(original_pose + np.array([0, A*np.sin((6.28/self.T)*curr_time), 0, A*np.sin((6.28/self.T)*curr_time)]))
             if curr_time > duration:
                 break
 
@@ -197,7 +233,7 @@ def main(**kwargs):
     finger.grasp()
     time.sleep(2.0)
 
-    finger.roll(10.0)
+    finger.roll()
     time.sleep(2.0)
 
     finger.return_to_zero()

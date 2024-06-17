@@ -22,7 +22,7 @@ import os
 # Params for data analysis
 num_max = 10        # number of top magnitudes to take average of for plotting
 percentile = 99.9   # percentile of magnitudes for plotting
-cap_reps = 7        # number of times to repeat frame capture before performing optical flow
+cap_reps = 1  #7        # number of times to repeat frame capture before performing optical flow
 comparison_rate = 10/cap_reps  # frame-rate of optical flow comparison (Hz)
 
 
@@ -145,7 +145,7 @@ def main(args):
     args = parser.parse_args()
 
     if not os.path.isdir(args.folder_path):
-        print(f"The path '{folder_path}' is not a directory.")
+        print(f"The path '{args.folder_path}' is not a directory.")
         return
 
     # Loop through each file in the directory

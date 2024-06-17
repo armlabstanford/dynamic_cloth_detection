@@ -10,7 +10,7 @@ ADDR_PRO_PRESENT_POSITION   = 132
 PROTOCOL_VERSION            = 2.0
 
 # Default setting
-DXL_ID                      = 1                 # Dynamixel ID: 1
+DXL_ID                      = 1                # Dynamixel ID: 1
 BAUDRATE                    = 57600             # Dynamixel default baudrate : 57600
 DEVICENAME                  = '/dev/ttyACM0'    # Check which port is being used on your controller
 

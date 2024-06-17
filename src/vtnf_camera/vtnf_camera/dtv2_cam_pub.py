@@ -50,44 +50,71 @@ class camPublisher(Node):
         self.declare_parameter('sensornum', '0')  # Default value if not provided
         self.declare_parameter('num_layers', '0')  # Default value if not provided
         self.declare_parameter('trial_num', '0')  # Default value if not provided
+        self.declare_parameter('force_threshold', '1.4')  # Default value if not provided
+        self.declare_parameter('T', '4.0')  # Default value if not provided
 
         self.camera_id = int(self.get_parameter('camera_id').get_parameter_value().string_value)
         self.sensornum = int(self.get_parameter('sensornum').get_parameter_value().string_value)
         self.num_layers = int(self.get_parameter('num_layers').get_parameter_value().string_value)
         self.trial_num = int(self.get_parameter('trial_num').get_parameter_value().string_value)
+        self.force_threshold = float(self.get_parameter('force_threshold').get_parameter_value().string_value)
+        self.T = float(self.get_parameter('T').get_parameter_value().string_value)
+
         print (f"dtv2_device_number: {self.camera_id}")
 
         # rosbag directory
-        self.rosbag_save_dir = f'/home/armlab/Documents/soft_manipulation/bag_files/{self.num_layers}_layer'
+        # self.rosbag_save_dir = f'/home/armlab/Documents/soft_manipulation/bag_files/{self.num_layers}_layer'
+
+        # self.file_save_dir = "data_6_12_tighter_pose"
+        # self.file_save_dir = "data_6_13"
+        self.file_save_dir = f"threshold_{self.force_threshold}_period_{self.T}"
+
+        self.rosbag_save_dir = f'/home/armlab/Documents/soft_manipulation/{self.file_save_dir}/bag_files/{self.num_layers}_layer'
         if not os.path.exists(self.rosbag_save_dir):
             os.makedirs(self.rosbag_save_dir)
 
+        if self.sensornum == 1:
+            self.vid_save_dir = f'/home/armlab/Documents/soft_manipulation/{self.file_save_dir}/output_videos/calibrated_cam/{self.num_layers}_layer'
+        else:
+            self.vid_save_dir = f'/home/armlab/Documents/soft_manipulation/{self.file_save_dir}/output_videos/uncalibrated_cam/{self.num_layers}_layer'
+        if not os.path.exists(self.vid_save_dir):
+            os.makedirs(self.vid_save_dir)
+
+        self.force_csv_dir = f'/home/armlab/Documents/soft_manipulation/{self.file_save_dir}/wrench_data/{self.num_layers}_layer'
+        if not os.path.exists(self.force_csv_dir):
+            os.makedirs(self.force_csv_dir)
+
+        self.joint_states_dir = f'/home/armlab/Documents/soft_manipulation/{self.file_save_dir}/joint_state_data/{self.num_layers}_layer'
+        if not os.path.exists(self.joint_states_dir):
+            os.makedirs(self.joint_states_dir)
+
         # rosbag writer
-        self._writer = rosbag2_py.SequentialWriter()
-        storage_options = rosbag2_py._storage.StorageOptions(uri = self.rosbag_save_dir + f'/bag_{self.trial_num}',
-                                                             storage_id='sqlite3')
-        converter_options = rosbag2_py._storage.ConverterOptions('', '')
-        self._writer.open(storage_options, converter_options)
-        force_topic_info = rosbag2_py._storage.TopicMetadata(name='/RunCamera/force',
-                                                             type="geometry_msgs/msg/WrenchStamped",
-                                                             serialization_format='cdr')
-        self._writer.create_topic(force_topic_info)        
+        if self.sensornum == 1:
+            self._writer = rosbag2_py.SequentialWriter()
+            storage_options = rosbag2_py._storage.StorageOptions(uri = self.rosbag_save_dir + f'/bag_{self.trial_num}',
+                                                                storage_id='sqlite3')
+            converter_options = rosbag2_py._storage.ConverterOptions('', '')
+            self._writer.open(storage_options, converter_options)
+            force_topic_info = rosbag2_py._storage.TopicMetadata(name='/RunCamera/force',
+                                                                type="geometry_msgs/msg/WrenchStamped",
+                                                                serialization_format='cdr')
+            self._writer.create_topic(force_topic_info)        
 
-        joint_state_topic_info = rosbag2_py._storage.TopicMetadata(name='/dxl_joint_states',
-                                                                   type='sensor_msgs/msg/JointState',
-                                                                   serialization_format='cdr')
-        self._writer.create_topic(joint_state_topic_info)
+            joint_state_topic_info = rosbag2_py._storage.TopicMetadata(name='/dxl_joint_states',
+                                                                    type='sensor_msgs/msg/JointState',
+                                                                    serialization_format='cdr')
+            self._writer.create_topic(joint_state_topic_info)
 
-        self.joint_states_sub = self.create_subscription(
-            JointState,
-            '/dxl_joint_states',
-            self.joint_states_callback,
-            10)
-        joint_state_msg = JointState()
-        joint_state_msg.header.stamp = self.get_clock().now().to_msg()
-        joint_state_msg.name = ['joint1', 'joint2', 'joint3', 'joint4']
-        joint_state_msg.position = [np.NaN, np.NaN, np.NaN, np.NaN]
-        self.curr_joint_state_msg = joint_state_msg
+            self.joint_states_sub = self.create_subscription(
+                JointState,
+                '/dxl_joint_states',
+                self.joint_states_callback,
+                10)
+            joint_state_msg = JointState()
+            joint_state_msg.header.stamp = self.get_clock().now().to_msg()
+            joint_state_msg.name = ['joint1', 'joint2', 'joint3', 'joint4']
+            joint_state_msg.position = [np.NaN, np.NaN, np.NaN, np.NaN]
+            self.curr_joint_state_msg = joint_state_msg
 
         queue_size = 1
         self.pub_dtv2 = self.create_publisher(Image, 'vtnf/camera_{}'.format(self.camera_id), queue_size)
@@ -202,7 +229,12 @@ class camPublisher(Node):
 
             # current_time = datetime.datetime.now()
             # timestamp = current_time.strftime('%m%d_%H%M%S')
-            self.out = cv2.VideoWriter(f'/home/armlab/Documents/soft_manipulation/output_videos/{self.num_layers}_layer/output_{self.trial_num}.avi', fourcc, 10.0, (1024, 768))
+            # self.out = cv2.VideoWriter(f'/home/armlab/Documents/soft_manipulation/output_videos/{self.num_layers}_layer/output_{self.trial_num}.avi', fourcc, 10.0, (1024, 768))
+            
+            if self.sensornum == 1:
+                self.out = cv2.VideoWriter(f'{self.vid_save_dir}/output_{self.trial_num}.avi', fourcc, 10.0, (1024, 768))
+            else:
+                self.out = cv2.VideoWriter(f'{self.vid_save_dir}/output_{self.trial_num}.avi', fourcc, 29.0, (1024, 768))
 
         else:
             self.capture_thread = threading.Thread(target=self.capture_and_publish)
@@ -220,16 +252,21 @@ class camPublisher(Node):
 
     def flag_callback(self, msg):
         if msg.data:
-            # close rosbag writer
-            self._writer.close()
-            del self._writer
 
-            # save data from rosbag to csv
-            bag_name = self.rosbag_save_dir + f'/bag_{self.trial_num}'
-            force_csv_filename = f'/home/armlab/Documents/soft_manipulation/wrench_data/{self.num_layers}_layer/wrench_data_{self.trial_num}.csv'
-            joint_states_csv_filename = f'/home/armlab/Documents/soft_manipulation/joint_state_data/{self.num_layers}_layer/joint_states_{self.trial_num}.csv'
-            self.read_rosbag_to_csv(bag_name, '/RunCamera/force', force_csv_filename)
-            self.read_rosbag_to_csv(bag_name, '/dxl_joint_states', joint_states_csv_filename)
+            if self.sensornum == 1:
+                # close rosbag writer
+                self._writer.close()
+                del self._writer
+
+                # save data from rosbag to csv
+                bag_name = self.rosbag_save_dir + f'/bag_{self.trial_num}'
+                # force_csv_filename = f'/home/armlab/Documents/soft_manipulation/wrench_data/{self.num_layers}_layer/wrench_data_{self.trial_num}.csv'
+                # joint_states_csv_filename = f'/home/armlab/Documents/soft_manipulation/joint_state_data/{self.num_layers}_layer/joint_states_{self.trial_num}.csv'
+                
+                force_csv_filename = f'{self.force_csv_dir}/wrench_data_{self.trial_num}.csv'
+                joint_states_csv_filename = f'{self.joint_states_dir}/joint_states_{self.trial_num}.csv'
+                self.read_rosbag_to_csv(bag_name, '/RunCamera/force', force_csv_filename)
+                self.read_rosbag_to_csv(bag_name, '/dxl_joint_states', joint_states_csv_filename)
 
             # shutdown node
             self.get_logger().info('Shutdown flag received, shutting down...')
