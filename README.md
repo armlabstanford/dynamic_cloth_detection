@@ -6,6 +6,6 @@ Submitted to _International Conference on Robotics and Automation 2025_
 
 This repo contains code for the Dynamic Cloth Detection Project
 
-View our project [website](https://armlabstanford.github.io/dynamic-cloth-detection)
+View our [project website](https://armlabstanford.github.io/dynamic-cloth-detection)
 
 View our paper on [Arxiv](https://arm.stanford.edu/people/camille-chungyoun)
