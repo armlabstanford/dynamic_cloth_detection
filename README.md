@@ -5,7 +5,7 @@
 Submitted to _International Conference on Robotics and Automation 2025_
 
 <!-- insert image here -->
-![Local Image](armlabstanford.github.io/dynamic-cloth-detection/static/soft_cloth/images/splash.jpg)
+![My Image](./img/splash.jpg)
 
 This repo contains code for the Dynamic Cloth Detection Project
 
