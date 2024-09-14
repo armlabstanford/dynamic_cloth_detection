@@ -4,6 +4,9 @@
 
 Submitted to _International Conference on Robotics and Automation 2025_
 
+<!-- insert image here -->
+![Local Image](https://touch-gs.github.io/static/images/method.png)
+
 This repo contains code for the Dynamic Cloth Detection Project
 
 View our [project website](https://armlabstanford.github.io/dynamic-cloth-detection)
