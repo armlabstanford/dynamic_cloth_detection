@@ -1,0 +1,665 @@
+import torch
+import torch.nn as nn
+import torch.optim as optim
+import torch.nn.functional as F
+from torchvision import models
+from torch.utils.data import DataLoader, TensorDataset
+from sklearn.manifold import TSNE
+import numpy as np
+import matplotlib.pyplot as plt
+from sklearn.metrics import confusion_matrix, ConfusionMatrixDisplay
+import imageio
+import os
+import pandas as pd
+ 
+
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+print(device)
+
+
+torch.cuda.empty_cache()
+
+def get_gpu_info():
+    if torch.cuda.is_available():
+        print(f"CUDA version: {torch.version.cuda}")
+        print(f"Number of GPUs: {torch.cuda.device_count()}")
+        for i in range(torch.cuda.device_count()):
+            print(f"GPU {i}: {torch.cuda.get_device_name(i)}")
+            print(f"  Total Memory: {torch.cuda.get_device_properties(i).total_memory / 1e9:.2f} GB")
+    else:
+        print("CUDA is not available.")
+
+def get_gpu_memory_usage():
+    if torch.cuda.is_available():
+        print(f"CUDA version: {torch.version.cuda}")
+        print(f"Number of GPUs: {torch.cuda.device_count()}")
+        for i in range(torch.cuda.device_count()):
+            print(f"GPU {i}: {torch.cuda.get_device_name(i)}")
+            print(f"  Allocated Memory: {torch.cuda.memory_allocated(i) / 1e9:.2f} GB")
+            print(f"  Cached Memory: {torch.cuda.memory_reserved(i) / 1e9:.2f} GB")
+    else:
+        print("CUDA is not available.")
+
+
+get_gpu_info()
+print('\n')
+get_gpu_memory_usage()
+
+
+# ---------- Load Data ----------
+# Load in the optical flow npz data
+
+data_path = '/home/armlab/Documents/soft_manipulation/npz_files/single_layer_data'
+
+# Load optical flow magnitudes for calibrated DT
+print("Calibrated Camera:")
+calibrated_flow_mags_0 = np.load(f'{data_path}/calibrated_flow_data_0_layers.npz')['flow_data'][:,0,:,:,:]
+print(f"Flow data for 0 layers has shape {calibrated_flow_mags_0.shape}")
+
+calibrated_flow_mags_1 = np.load(f'{data_path}/calibrated_flow_data_1_layers.npz')['flow_data'][:,0,:,:,:]
+print(f"Flow data for 1 layers has shape {calibrated_flow_mags_1.shape}")
+
+calibrated_flow_mags_2 = np.load(f'{data_path}/calibrated_flow_data_2_layers.npz')['flow_data'][:,0,:,:,:]
+print(f"Flow data for 2 layers has shape {calibrated_flow_mags_2.shape}")
+
+calibrated_flow_mags_3 = np.load(f'{data_path}/calibrated_flow_data_3_layers.npz')['flow_data'][:,0,:,:,:]
+print(f"Flow data for 3 layers has shape {calibrated_flow_mags_3.shape}")
+
+
+# Load optical flow magnitudes for uncalibrated DT
+print("Uncalibrated Camera:")
+uncalibrated_flow_mags_0 = np.load(f'{data_path}/uncalibrated_flow_data_0_layers.npz')['flow_data'][:,0,:,:,:]
+print(f"Flow data for 0 layers has shape {uncalibrated_flow_mags_0.shape}")
+
+uncalibrated_flow_mags_1 = np.load(f'{data_path}/uncalibrated_flow_data_1_layers.npz')['flow_data'][:,0,:,:,:]
+print(f"Flow data for 1 layers has shape {uncalibrated_flow_mags_1.shape}")
+
+uncalibrated_flow_mags_2 = np.load(f'{data_path}/uncalibrated_flow_data_2_layers.npz')['flow_data'][:,0,:,:,:]
+print(f"Flow data for 2 layers has shape {uncalibrated_flow_mags_2.shape}")
+
+uncalibrated_flow_mags_3 = np.load(f'{data_path}/uncalibrated_flow_data_3_layers.npz')['flow_data'][:,0,:,:,:]
+print(f"Flow data for 3 layers has shape {uncalibrated_flow_mags_3.shape}")
+
+
+# Split the data into training and testing
+# 70% training, 20% validation, 10% testing (for 92 trials: 64 training, 18 validation, 10 testing) <--- this has changed to 70/15/15
+num_trials_0 = calibrated_flow_mags_0.shape[0]
+num_trials_1 = calibrated_flow_mags_1.shape[0]
+num_trials_2 = calibrated_flow_mags_2.shape[0]
+num_trials_3 = calibrated_flow_mags_3.shape[0]
+
+train_0 = calibrated_flow_mags_0[:int(0.70*num_trials_0)]
+val_0 = calibrated_flow_mags_0[int(0.70*num_trials_0):int(0.85*num_trials_0)]
+test_0 = calibrated_flow_mags_0[int(0.85*num_trials_0):]
+
+train_1 = calibrated_flow_mags_1[:int(0.70*num_trials_1)]
+val_1 = calibrated_flow_mags_1[int(0.70*num_trials_1):int(0.85*num_trials_1)]
+test_1 = calibrated_flow_mags_1[int(0.85*num_trials_1):]
+
+train_2 = calibrated_flow_mags_2[:int(0.70*num_trials_2)]
+val_2 = calibrated_flow_mags_2[int(0.70*num_trials_2):int(0.85*num_trials_2)]
+test_2 = calibrated_flow_mags_2[int(0.85*num_trials_2):]
+
+train_3 = calibrated_flow_mags_3[:int(0.70*num_trials_3)]
+val_3 = calibrated_flow_mags_3[int(0.70*num_trials_3):int(0.85*num_trials_3)]
+test_3 = calibrated_flow_mags_3[int(0.85*num_trials_3):]
+
+print("Calibrated Camera:")
+print(f"Training data for 0 layers has shape {train_0.shape}")
+print(f"Validation data for 0 layers has shape {val_0.shape}")
+print(f"Testing data for 0 layers has shape {test_0.shape}")
+
+print(f"Training data for 1 layers has shape {train_1.shape}")
+print(f"Validation data for 1 layers has shape {val_1.shape}")
+print(f"Testing data for 1 layers has shape {test_1.shape}")
+
+print(f"Training data for 2 layers has shape {train_2.shape}")
+print(f"Validation data for 2 layers has shape {val_2.shape}")
+print(f"Testing data for 2 layers has shape {test_2.shape}")
+
+print(f"Training data for 3 layers has shape {train_3.shape}")
+print(f"Validation data for 3 layers has shape {val_3.shape}")
+print(f"Testing data for 3 layers has shape {test_3.shape}")
+
+
+# repeat for uncalibrated data
+uncalibrated_num_trials_0 = uncalibrated_flow_mags_0.shape[0]
+uncalibrated_num_trials_1 = uncalibrated_flow_mags_1.shape[0]
+uncalibrated_num_trials_2 = uncalibrated_flow_mags_2.shape[0]
+uncalibrated_num_trials_3 = uncalibrated_flow_mags_3.shape[0]
+
+uncalibrated_train_0 = uncalibrated_flow_mags_0[:int(0.70*num_trials_0)]
+uncalibrated_val_0 = uncalibrated_flow_mags_0[int(0.70*num_trials_0):int(0.85*num_trials_0)]
+uncalibrated_test_0 = uncalibrated_flow_mags_0[int(0.85*num_trials_0):]
+
+uncalibrated_train_1 = uncalibrated_flow_mags_1[:int(0.70*num_trials_1)]
+uncalibrated_val_1 = uncalibrated_flow_mags_1[int(0.70*num_trials_1):int(0.85*num_trials_1)]
+uncalibrated_test_1 = uncalibrated_flow_mags_1[int(0.85*num_trials_1):]
+
+uncalibrated_train_2 = uncalibrated_flow_mags_2[:int(0.70*num_trials_2)]
+uncalibrated_val_2 = uncalibrated_flow_mags_2[int(0.70*num_trials_2):int(0.85*num_trials_2)]
+uncalibrated_test_2 = uncalibrated_flow_mags_2[int(0.85*num_trials_2):]
+
+uncalibrated_train_3 = uncalibrated_flow_mags_3[:int(0.70*num_trials_3)]
+uncalibrated_val_3 = uncalibrated_flow_mags_3[int(0.70*num_trials_3):int(0.85*num_trials_3)]
+uncalibrated_test_3 = uncalibrated_flow_mags_3[int(0.85*num_trials_3):]
+
+print("Uncalibrated Camera:")
+print(f"Training data for 0 layers has shape {uncalibrated_train_0.shape}")
+print(f"Validation data for 0 layers has shape {uncalibrated_val_0.shape}")
+print(f"Testing data for 0 layers has shape {uncalibrated_test_0.shape}")
+
+print(f"Training data for 1 layers has shape {uncalibrated_train_1.shape}")
+print(f"Validation data for 1 layers has shape {uncalibrated_val_1.shape}")
+print(f"Testing data for 1 layers has shape {uncalibrated_test_1.shape}")
+
+print(f"Training data for 2 layers has shape {uncalibrated_train_2.shape}")
+print(f"Validation data for 2 layers has shape {uncalibrated_val_2.shape}")
+print(f"Testing data for 2 layers has shape {uncalibrated_test_2.shape}")
+
+print(f"Training data for 3 layers has shape {uncalibrated_train_3.shape}")
+print(f"Validation data for 3 layers has shape {uncalibrated_val_3.shape}")
+print(f"Testing data for 3 layers has shape {uncalibrated_test_3.shape}")
+
+# Concatenate and label train data
+train_data = np.concatenate((train_0, train_1, train_2, train_3), axis=0)
+train_data_tensor = torch.tensor(train_data).float().to(device)
+
+labels_train = np.empty((train_data.shape[0]))
+labels_train[:train_0.shape[0]] = 0
+labels_train[train_0.shape[0]:train_0.shape[0]+train_1.shape[0]] = 1
+labels_train[train_0.shape[0]+train_1.shape[0]:train_0.shape[0]+train_1.shape[0]+train_2.shape[0]] = 2
+labels_train[train_0.shape[0]+train_1.shape[0]+train_2.shape[0]:] = 3
+
+labels_train = torch.tensor(labels_train, dtype=torch.long).to(device)
+print(f"Train Labels Shape: {labels_train.shape}")
+
+
+# Concatenate and label validation data
+val_data = np.concatenate((val_0, val_1, val_2, val_3), axis=0)
+val_data_tensor = torch.tensor(val_data).float().to(device)
+
+labels_val = np.empty((val_data.shape[0]))
+labels_val[:val_0.shape[0]] = 0
+labels_val[val_0.shape[0]:val_0.shape[0]+val_1.shape[0]] = 1
+labels_val[val_0.shape[0]+val_1.shape[0]:val_0.shape[0]+val_1.shape[0]+val_2.shape[0]] = 2
+labels_val[val_0.shape[0]+val_1.shape[0]+val_2.shape[0]:] = 3
+
+labels_val = torch.tensor(labels_val, dtype=torch.long).to(device)
+print(f"Validation Labels Shape: {labels_val.shape}")
+
+
+# Concatenate and label test data
+test_data = np.concatenate((test_0, test_1, test_2, test_3), axis=0)
+test_data_tensor = torch.tensor(test_data).float().to(device)
+
+labels_test = np.empty((test_data.shape[0]))
+labels_test[:test_0.shape[0]] = 0
+labels_test[test_0.shape[0]:test_0.shape[0]+test_1.shape[0]] = 1
+labels_test[test_0.shape[0]+test_1.shape[0]:test_0.shape[0]+test_1.shape[0]+test_2.shape[0]] = 2
+labels_test[test_0.shape[0]+test_1.shape[0]+test_2.shape[0]:] = 3
+
+labels_test = torch.tensor(labels_test, dtype=torch.long).to(device)
+print(f"Test Labels Shape: {labels_test.shape}")
+
+
+# concatenate train data, concatenate validation data, and concatenate test data for uncalibrated camera
+uncalibrated_train_data = np.concatenate((uncalibrated_train_0, uncalibrated_train_1, uncalibrated_train_2, uncalibrated_train_3), axis=0)
+uncalibrated_train_data_tensor = torch.tensor(uncalibrated_train_data).float().to(device)
+
+uncalibrated_val_data = np.concatenate((uncalibrated_val_0, uncalibrated_val_1, uncalibrated_val_2, uncalibrated_val_3), axis=0)
+uncalibrated_val_data_tensor = torch.tensor(uncalibrated_val_data).float().to(device)
+
+uncalibrated_test_data = np.concatenate((uncalibrated_test_0, uncalibrated_test_1, uncalibrated_test_2, uncalibrated_test_3), axis=0)
+uncalibrated_test_data_tensor = torch.tensor(uncalibrated_test_data).float().to(device)
+
+
+get_gpu_memory_usage()
+
+
+# Load wrench data
+forces_0 = np.load(f'{data_path}/wrench_data_0_layers.npz')['wrench_data']
+print(f"Wrench data for 0 layers has shape {forces_0.shape}")
+
+forces_1 = np.load(f'{data_path}/wrench_data_1_layers.npz')['wrench_data']
+print(f"Wrench data for 1 layers has shape {forces_1.shape}")
+
+forces_2 = np.load(f'{data_path}/wrench_data_2_layers.npz')['wrench_data']
+print(f"Wrench data for 2 layers has shape {forces_2.shape}")
+
+forces_3 = np.load(f'{data_path}/wrench_data_3_layers.npz')['wrench_data']
+print(f"Wrench data for 3 layers has shape {forces_3.shape}")
+
+# Split wrench data into training, validation, and testing
+train_forces_0 = forces_0[:int(0.70*num_trials_0)]
+val_forces_0 = forces_0[int(0.70*num_trials_0):int(0.85*num_trials_0)]
+test_forces_0 = forces_0[int(0.85*num_trials_0):]
+
+train_forces_1 = forces_1[:int(0.70*num_trials_1)]
+val_forces_1 = forces_1[int(0.70*num_trials_1):int(0.85*num_trials_1)]
+test_forces_1 = forces_1[int(0.85*num_trials_1):]
+
+train_forces_2 = forces_2[:int(0.70*num_trials_2)]
+val_forces_2 = forces_2[int(0.70*num_trials_2):int(0.85*num_trials_2)]
+test_forces_2 = forces_2[int(0.85*num_trials_2):]
+
+train_forces_3 = forces_3[:int(0.70*num_trials_3)]
+val_forces_3 = forces_3[int(0.70*num_trials_3):int(0.85*num_trials_3)]
+test_forces_3 = forces_3[int(0.85*num_trials_3):]
+
+forces_train_data = np.concatenate((train_forces_0, train_forces_1, train_forces_2, train_forces_3), axis=0)
+forces_train_data_tensor = torch.tensor(forces_train_data).float().to(device)
+
+forces_val_data = np.concatenate((val_forces_0, val_forces_1, val_forces_2, val_forces_3), axis=0)
+forces_val_data_tensor = torch.tensor(forces_val_data).float().to(device)
+
+forces_test_data = np.concatenate((test_forces_0, test_forces_1, test_forces_2, test_forces_3), axis=0)
+forces_test_data_tensor = torch.tensor(forces_test_data).float().to(device)
+
+print(f"Forces Train data shape: {forces_train_data_tensor.shape}")
+print(f"Forces Validation data shape: {forces_val_data_tensor.shape}")
+print(f"Forces Test data shape: {forces_test_data_tensor.shape}")
+
+get_gpu_memory_usage()
+
+
+# Load joint angle data
+joint_states_0 = np.load(f'{data_path}/joint_data_0_layers.npz')['joint_data']
+print(f"Joint data for 0 layers has shape {joint_states_0.shape}")
+
+joint_states_1 = np.load(f'{data_path}/joint_data_1_layers.npz')['joint_data']
+print(f"Joint data for 1 layers has shape {joint_states_1.shape}")
+
+joint_states_2 = np.load(f'{data_path}/joint_data_2_layers.npz')['joint_data']
+print(f"Joint data for 2 layers has shape {joint_states_2.shape}")
+
+joint_states_3 = np.load(f'{data_path}/joint_data_3_layers.npz')['joint_data']
+print(f"Joint data for 3 layers has shape {joint_states_3.shape}")
+
+
+# Split joint state data into training, validation, and testing
+train_joints_0 = joint_states_0[:int(0.70*num_trials_0)]
+val_joints_0 = joint_states_0[int(0.70*num_trials_0):int(0.85*num_trials_0)]
+test_joints_0 = joint_states_0[int(0.85*num_trials_0):]
+
+train_joints_1 = joint_states_1[:int(0.70*num_trials_1)]
+val_joints_1 = joint_states_1[int(0.70*num_trials_1):int(0.85*num_trials_1)]
+test_joints_1 = joint_states_1[int(0.85*num_trials_1):]
+
+train_joints_2 = joint_states_2[:int(0.70*num_trials_2)]
+val_joints_2 = joint_states_2[int(0.70*num_trials_2):int(0.85*num_trials_2)]
+test_joints_2 = joint_states_2[int(0.85*num_trials_2):]
+
+train_joints_3 = joint_states_3[:int(0.70*num_trials_3)]
+val_joints_3 = joint_states_3[int(0.70*num_trials_3):int(0.85*num_trials_3)]
+test_joints_3 = joint_states_3[int(0.85*num_trials_3):]
+
+joint_state_train_data = np.concatenate((train_joints_0, train_joints_1, train_joints_2, train_joints_3), axis=0)
+joint_state_train_data_tensor = torch.tensor(joint_state_train_data).float().to(device)
+
+joint_state_val_data = np.concatenate((val_joints_0, val_joints_1, val_joints_2, val_joints_3), axis=0)
+joint_state_val_data_tensor = torch.tensor(joint_state_val_data).float().to(device)
+
+joint_state_test_data = np.concatenate((test_joints_0, test_joints_1, test_joints_2, test_joints_3), axis=0)
+joint_state_test_data_tensor = torch.tensor(joint_state_test_data).float().to(device)
+
+print(f"Joint State Train data shape: {joint_state_train_data_tensor.shape}")
+print(f"Joint State Validation data shape: {joint_state_val_data_tensor.shape}")
+print(f"Joint State Test data shape: {joint_state_test_data_tensor.shape}")
+
+get_gpu_memory_usage()
+
+
+# ---------- Create Data Loaders ----------
+
+from torch.utils.data import DataLoader, TensorDataset
+
+train_dataset = TensorDataset(train_data_tensor, uncalibrated_train_data_tensor, forces_train_data_tensor, joint_state_train_data_tensor, labels_train)
+val_dataset = TensorDataset(val_data_tensor, uncalibrated_val_data_tensor, forces_val_data_tensor, joint_state_val_data_tensor, labels_val)
+test_dataset = TensorDataset(test_data_tensor, uncalibrated_test_data_tensor, forces_test_data_tensor, joint_state_test_data_tensor, labels_test)
+
+train_loader = DataLoader(train_dataset, batch_size=2, shuffle=True)
+val_loader = DataLoader(val_dataset, batch_size=1, shuffle=False)
+test_loader = DataLoader(test_dataset, batch_size=1, shuffle=False)
+
+
+# ---------- Set up confusion matrices ----------
+
+if not os.path.exists('train_confusion_matrices'):
+    os.makedirs('train_confusion_matrices')
+
+if not os.path.exists('test_confusion_matrices'):
+    os.makedirs('test_confusion_matrices')
+
+#  Create and save the confusion matrix
+def plot_confusion_matrix(all_labels, all_preds, data_type, test_number=None): # data_type is either 'train' or 'test'
+    cm = confusion_matrix(all_labels, all_preds, labels=[0, 1, 2, 3])
+    disp = ConfusionMatrixDisplay(confusion_matrix=cm, display_labels=[0, 1, 2, 3])
+    disp.plot(cmap=plt.cm.Blues)
+    if data_type == 'train':
+        plt.title(f'Confusion Matrix at Epoch {epoch}')
+        plt.savefig(f'{data_type}_confusion_matrices/{data_type}_confusion_matrix_epoch_{epoch}.png')
+    else: # data_type == 'test'
+        plt.title(f'Confusion Matrix at Test Number {test_number}')
+        plt.savefig(f'{data_type}_confusion_matrices/{data_type}_confusion_matrix_test_{test_number}.png')
+    plt.close()
+
+
+# ----------- Create and train resnet18 model -----------
+
+# Note: ResNet expects (batch_size, 3, height, width) input shape, where 3 indicates the 3 color channels (RGB)
+# The input shape of the flow data is (number of trials, number of time frames, height, width), so will need to triplicate the data to get the 3 "color" channels
+
+class ResNet18FeatureExtractor(nn.Module):
+    def __init__(self, output_size):
+        super(ResNet18FeatureExtractor, self).__init__()
+        resnet = models.resnet18(pretrained=True)
+        self.resnet = nn.Sequential(*list(resnet.children())[:-1])  # Remove the final classification layer (fc)
+        self.fc = nn.Linear(resnet.fc.in_features, output_size)  # Adapt to your output size
+
+    def forward(self, x):
+        x = self.resnet(x)
+        x = x.view(x.size(0), -1)  # Flatten
+        z = self.fc(x)  # Get the output features
+        return z
+    
+class ForceFeatureExtractor(nn.Module):
+    def __init__(self, input_size, output_size):
+        super(ForceFeatureExtractor, self).__init__()
+        self.fc1 = nn.Linear(input_size, 64)
+        self.fc2 = nn.Linear(64, 32)
+        self.fc3 = nn.Linear(32, output_size)
+
+    def forward(self, x):
+        x = F.relu(self.fc1(x))
+        x = F.relu(self.fc2(x))
+        z = self.fc3(x)
+        return z
+    
+class JointAngleFeatureExtractor(nn.Module):
+    def __init__(self, input_size, output_size):
+        super(JointAngleFeatureExtractor, self).__init__()
+        self.fc1 = nn.Linear(input_size, 64)
+        self.fc2 = nn.Linear(64, 32)
+        self.fc3 = nn.Linear(32, output_size)
+
+    def forward(self, x):
+        x = F.relu(self.fc1(x))
+        x = F.relu(self.fc2(x))
+        z = self.fc3(x)
+        return z
+    
+class ResNet18Model(nn.Module):
+    def __init__(self, d_model, nhead, num_encoder_layers, dim_feedforward, num_classes, force_input_size, force_output_size, joint_input_size, joint_output_size):
+        super(ResNet18Model, self).__init__()
+        self.feature_extractor = ResNet18FeatureExtractor(d_model)
+        self.force_extractor = ForceFeatureExtractor(force_input_size, force_output_size)
+        self.joint_extractor = JointAngleFeatureExtractor(joint_input_size, joint_output_size)
+        self.pos_encoder = nn.Parameter(torch.zeros(1, 200, 2*d_model + force_output_size + joint_output_size)) # use this if using uncalibrated optical flow
+        encoder_layers = nn.TransformerEncoderLayer(2*d_model + force_output_size + joint_output_size, nhead, dim_feedforward) # use this if using uncalibrated optical flow
+        self.transformer_encoder = nn.TransformerEncoder(encoder_layers, num_encoder_layers)
+        self.fc1 = nn.Linear(2*d_model + force_output_size + joint_output_size, 40) # use this if using uncalibrated optical flow
+        self.fc2 = nn.Linear(40, num_classes)
+        self.d_model = d_model        
+
+    def forward(self, cal_image_data, uncal_image_data, force_data, joint_data): # for calibrated optical flow, uncalibrated optical flow, wrench, and joint states
+        batch_size, seq_len, _, _, = cal_image_data.shape
+
+        # calibrated optical flow
+        cal_image_data = cal_image_data.unsqueeze(2)  # Shape becomes (batch_size, seq_len, 1, height, width)
+        cal_image_data = cal_image_data.expand(-1, -1, 3, -1, -1)  # Shape becomes (batch_size, seq_len, 3, height, width)
+        cal_image_data = cal_image_data.view(batch_size * seq_len, 3, 96, 128)
+        cal_image_features = self.feature_extractor(cal_image_data)
+        cal_image_features = cal_image_features.view(batch_size, seq_len, -1)
+
+        # uncalibrated optical flow
+        uncal_image_data = uncal_image_data.unsqueeze(2)  # Shape becomes (batch_size, seq_len, 1, height, width)
+        uncal_image_data = uncal_image_data.expand(-1, -1, 3, -1, -1)  # Shape becomes (batch_size, seq_len, 3, height, width)
+        uncal_image_data = uncal_image_data.view(batch_size * seq_len, 3, 96, 128)
+        uncal_image_features = self.feature_extractor(uncal_image_data)
+        uncal_image_features = uncal_image_features.view(batch_size, seq_len, -1)
+
+        # wrench
+        force_data = force_data.view(batch_size * seq_len, -1)
+        force_features = self.force_extractor(force_data)
+        force_features = force_features.view(batch_size, seq_len, -1)
+
+        # joint states
+        joint_data = joint_data.view(batch_size * seq_len, -1)
+        joint_features = self.joint_extractor(joint_data)
+        joint_features = joint_features.view(batch_size, seq_len, -1)
+
+        # concatenate all features
+        combined_features = torch.cat((cal_image_features, uncal_image_features, force_features, joint_features), dim=2)
+        combined_features += self.pos_encoder[:, :seq_len, :]        
+
+        x = self.transformer_encoder(combined_features)
+        x = x.mean(dim=1)  # Pooling over the sequence dimension
+        x = self.fc1(x)
+        x = self.fc2(x)
+        return F.softmax(x, dim=1), x  # Return both the logits and the feature vector
+
+
+# Initialize the model, loss function, and optimizer
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+model = ResNet18Model(d_model=60, nhead=8, num_encoder_layers=3, dim_feedforward=2048, num_classes=4, force_input_size=6, force_output_size=24, joint_input_size=4, joint_output_size=16).to(device) 
+criterion = nn.CrossEntropyLoss().to(device)
+optimizer = optim.Adam(model.parameters(), lr=0.00005)
+
+
+# Training loop
+max_epochs = 500
+min_epochs = 500 # 300
+loss_values = []
+best_loss = float('inf')
+early_stop_counter = 0
+min_early_stop = 100
+for epoch in range(max_epochs):
+    model.train()
+    running_loss = 0.0
+    all_preds = []
+    all_labels = []
+
+    for cal_image_inputs, uncal_image_inputs, force_inputs, joint_inputs, labels in train_loader:
+        optimizer.zero_grad()
+        outputs, _ = model(cal_image_inputs.to(device), uncal_image_inputs.to(device), force_inputs.to(device), joint_inputs.to(device))
+        loss = criterion(outputs, labels.to(device))
+        loss.backward()
+        nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0) # gradient clipping
+        optimizer.step()
+        running_loss += loss.item()
+        
+        # Collect predictions and labels
+        preds = torch.argmax(outputs, dim=1).cpu().numpy()
+        all_preds.extend(preds)
+        all_labels.extend(labels.cpu().numpy())
+
+    # Condition to reset the optimizer state
+    if epoch % 10 == 0:
+        model_state = model.state_dict()
+        optimizer = optim.Adam(model.parameters(), lr=0.00005)
+        model.load_state_dict(model_state)
+        print(f"Epoch {epoch}, Loss: {running_loss / len(train_loader)}")
+
+    if epoch % 25 == 0:
+        plot_confusion_matrix(all_labels, all_preds, 'train')
+        
+    epoch_loss = running_loss / len(train_loader)
+    loss_values.append(epoch_loss)
+
+    # Validation loop
+    model.eval()
+    running_val_loss = 0.0
+    with torch.no_grad():
+        for cal_image_inputs, uncal_image_inputs, force_inputs, joint_inputs, labels in val_loader:
+            outputs, _ = model(cal_image_inputs.to(device), uncal_image_inputs.to(device), force_inputs.to(device), joint_inputs.to(device))
+            loss = criterion(outputs, labels.to(device))
+            running_val_loss += loss.item()
+    avg_val_loss = running_val_loss / len(val_loader)
+
+    # Save model with lowest validation loss
+    if avg_val_loss < best_loss:
+        best_loss = avg_val_loss
+        early_stop_counter = 0
+        if not os.path.exists('best_model'):
+            os.makedirs('best_model')
+        torch.save({
+            'epoch': epoch,
+            'model_state_dict': model.state_dict(),
+            'optimizer_state_dict': optimizer.state_dict(),
+            'loss': running_loss / len(train_loader),
+            }, 'best_model/best_model.pth')
+        print(f"Current best model saved at epoch {epoch}, current best validation loss: {best_loss}")
+    else:
+        early_stop_counter += 1
+
+    if early_stop_counter >= min_early_stop and epoch > min_epochs and np.abs(loss_values[-1] - loss_values[-2]) < 0.0001:
+        print(f"Early stopping at epoch {epoch}")
+        break
+
+        
+print('Finished Training')
+
+
+# ---------- Create training confusion matrix video ----------
+
+# Create a video of the training confusion matricies as they update over time
+video_filename = 'train_confusion_matrices/train_confusion_matrix_vid.mp4'
+png_files = sorted([f for f in os.listdir('train_confusion_matrices') if f.endswith('.png')])
+png_files.sort(key=lambda x: int(x.split('_')[-1].split('.')[0]))
+with imageio.get_writer(video_filename, mode='I', fps=2) as writer:
+    for png_file in png_files:
+        image = imageio.imread(os.path.join('train_confusion_matrices', png_file))
+        writer.append_data(image)
+
+
+# ---------- Determine Accuracy on Test Data ----------
+
+def evaluate(model, test_loader, criterion, device):
+    model.eval()  # Set the model to evaluation mode
+    test_loss = 0.0
+    correct = 0
+    total = 0
+    test_number = 0
+    all_labels = []
+    all_predictions = []
+
+    with torch.no_grad():  # Disable gradient computation
+        for cal_image_inputs, uncal_image_inputs, force_inputs, joint_inputs, labels in test_loader:
+            cal_image_inputs, uncal_image_inputs, force_inputs, joint_inputs, labels = cal_image_inputs.to(device), uncal_image_inputs.to(device), force_inputs.to(device), joint_inputs.to(device), labels.to(device)
+            outputs, _ = model(cal_image_inputs, uncal_image_inputs, force_inputs, joint_inputs)
+
+            loss = criterion(outputs, labels)
+            test_loss += loss.item()
+
+            formatted_output = "\n".join(["\t".join([f"{value:.4f}" for value in row]) for row in outputs])
+            print(f"Test Number {test_number+1}: {formatted_output}")
+            test_number += 1
+
+            _, predicted = torch.max(outputs, 1)
+            total += labels.size(0)
+            correct += (predicted == labels).sum().item()
+
+            all_labels.extend(labels.cpu().numpy())
+            all_predictions.extend(predicted.cpu().numpy())
+
+            plot_confusion_matrix(all_labels, all_predictions, 'test', test_number)
+
+    avg_loss = test_loss / len(test_loader)
+    accuracy = correct / total * 100
+
+    print(f'Test Loss: {avg_loss:.4f}, Test Accuracy: {accuracy:.2f}%')
+
+    return avg_loss, accuracy, all_labels, all_predictions, test_number
+
+# Load the best model for evaluation
+checkpoint = torch.load('best_model/best_model.pth')
+model.load_state_dict(checkpoint['model_state_dict'])
+test_loss, test_accuracy, all_test_labels, all_test_predictions, final_test_number = evaluate(model, test_loader, criterion, device)
+
+
+# ---------- Create test confusion matrix video ----------
+# Create a video of the testing confusion matricies as they update over time
+test_video_filename = 'test_confusion_matrices/test_confusion_matrix_vid.mp4'
+png_files = sorted([f for f in os.listdir('test_confusion_matrices') if f.endswith('.png')])
+png_files.sort(key=lambda x: int(x.split('_')[-1].split('.')[0]))
+with imageio.get_writer(test_video_filename, mode='I', fps=2) as writer:
+    for png_file in png_files:
+        image = imageio.imread(os.path.join('test_confusion_matrices', png_file))
+        writer.append_data(image)
+
+
+# ---------- Plot the training loss over time ----------
+
+def plot_losses(train_losses):
+    plt.figure(figsize=(10, 5))
+    plt.plot(train_losses, label='Train Loss')
+    plt.xlabel('Epochs')
+    plt.ylabel('Loss')
+    plt.legend()
+    plt.title('Train Loss over Epochs')
+
+    if not os.path.exists('plots'):
+        os.makedirs('plots')
+    plt.savefig('plots/train_loss.png')
+ 
+
+# Call this function after training
+plot_losses(loss_values)
+
+
+# ---------- Create T-SNE plot of the latent vectors ----------
+
+def extract_latent_features(model, data_loader, device):
+    model.eval()
+    latent_features = []
+    labels_list = []
+
+    with torch.no_grad():
+        for cal_image_inputs, uncal_image_inputs, force_inputs, joint_inputs, labels in data_loader:
+            cal_image_inputs, uncal_image_inputs, force_inputs, joint_inputs, labels = cal_image_inputs.to(device), uncal_image_inputs.to(device), force_inputs.to(device), joint_inputs.to(device), labels.to(device)
+            _, latent = model(cal_image_inputs, uncal_image_inputs, force_inputs, joint_inputs)        
+            latent_features.append(latent.cpu().numpy())
+            labels_list.append(labels.cpu().numpy())
+
+    latent_features = np.concatenate(latent_features)
+    labels_list = np.concatenate(labels_list)
+
+    return latent_features, labels_list
+
+latent_features, labels_list = extract_latent_features(model, test_loader, device)
+
+# Apply T-SNE and plot
+def plot_tsne(latent_features, labels_list, num_classes=4):
+    tsne = TSNE(n_components=2, random_state=0)
+    tsne_results = tsne.fit_transform(latent_features)
+
+    plt.figure(figsize=(10, 7))
+    for class_id in range(num_classes):
+        indices = labels_list == class_id
+        plt.scatter(tsne_results[indices, 0], tsne_results[indices, 1], label=f'Class {class_id}', alpha=0.5)
+
+    if not os.path.exists('plots'):
+        os.makedirs('plots')
+
+    tsne_df = pd.DataFrame({
+        'TSNE_1': tsne_results[:, 0],
+        'TSNE_2': tsne_results[:, 1],
+        'Label': labels_list
+    })
+
+    tsne_df.to_csv('plots/TSNE_values.csv', index=False)
+
+    plt.legend()
+    plt.title('T-SNE Plot of Latent Features')
+    plt.xlabel('T-SNE 1')
+    plt.ylabel('T-SNE 2')
+    plt.savefig('plots/TSNE.png')
+
+plot_tsne(latent_features, labels_list)
+
+
+# ---------- Check the number of epochs the best model was saved at ----------
+
+checkpoint = torch.load('best_model/best_model.pth')
+print(f"Best model was saved at epoch {checkpoint['epoch']}")
