@@ -2,18 +2,20 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 import torch.nn.functional as F
+from torchvision import models
 from torch.utils.data import DataLoader, TensorDataset
 from sklearn.manifold import TSNE
 import numpy as np
 import matplotlib.pyplot as plt
-import pandas as pd
 from sklearn.metrics import confusion_matrix, ConfusionMatrixDisplay
 import imageio
 import os
-
+import pandas as pd
+ 
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 print(device)
+
 
 torch.cuda.empty_cache()
 
@@ -78,6 +80,7 @@ print(f"Flow data for 2 layers has shape {uncalibrated_flow_mags_2.shape}")
 
 uncalibrated_flow_mags_3 = np.load(f'{data_path}/uncalibrated_flow_data_3_layers.npz')['flow_data'][:,0,:,:,:]
 print(f"Flow data for 3 layers has shape {uncalibrated_flow_mags_3.shape}")
+
 
 # Split the data into 70% training, 15% validation, and 15% testing
 num_trials_0 = calibrated_flow_mags_0.shape[0]
@@ -210,50 +213,53 @@ uncalibrated_val_data_tensor = torch.tensor(uncalibrated_val_data).float().to(de
 uncalibrated_test_data = np.concatenate((uncalibrated_test_0, uncalibrated_test_1, uncalibrated_test_2, uncalibrated_test_3), axis=0)
 uncalibrated_test_data_tensor = torch.tensor(uncalibrated_test_data).float().to(device)
 
+
 get_gpu_memory_usage()
 
-# Load wrench data
-forces_0 = np.load(f'{data_path}/wrench_data_0_layers.npz')['wrench_data']
-print(f"Wrench data for 0 layers has shape {forces_0.shape}")
 
-forces_1 = np.load(f'{data_path}/wrench_data_1_layers.npz')['wrench_data']
-print(f"Wrench data for 1 layers has shape {forces_1.shape}")
+# Load joint angle data
+joint_states_0 = np.load(f'{data_path}/joint_data_0_layers.npz')['joint_data']
+print(f"Joint data for 0 layers has shape {joint_states_0.shape}")
 
-forces_2 = np.load(f'{data_path}/wrench_data_2_layers.npz')['wrench_data']
-print(f"Wrench data for 2 layers has shape {forces_2.shape}")
+joint_states_1 = np.load(f'{data_path}/joint_data_1_layers.npz')['joint_data']
+print(f"Joint data for 1 layers has shape {joint_states_1.shape}")
 
-forces_3 = np.load(f'{data_path}/wrench_data_3_layers.npz')['wrench_data']
-print(f"Wrench data for 3 layers has shape {forces_3.shape}")
+joint_states_2 = np.load(f'{data_path}/joint_data_2_layers.npz')['joint_data']
+print(f"Joint data for 2 layers has shape {joint_states_2.shape}")
 
-# Split wrench data into training, validation, and testing
-train_forces_0 = forces_0[:int(0.70*num_trials_0)]
-val_forces_0 = forces_0[int(0.70*num_trials_0):int(0.85*num_trials_0)]
-test_forces_0 = forces_0[int(0.85*num_trials_0):]
+joint_states_3 = np.load(f'{data_path}/joint_data_3_layers.npz')['joint_data']
+print(f"Joint data for 3 layers has shape {joint_states_3.shape}")
 
-train_forces_1 = forces_1[:int(0.70*num_trials_1)]
-val_forces_1 = forces_1[int(0.70*num_trials_1):int(0.85*num_trials_1)]
-test_forces_1 = forces_1[int(0.85*num_trials_1):]
 
-train_forces_2 = forces_2[:int(0.70*num_trials_2)]
-val_forces_2 = forces_2[int(0.70*num_trials_2):int(0.85*num_trials_2)]
-test_forces_2 = forces_2[int(0.85*num_trials_2):]
+# Split joint state data into training, validation, and testing
+train_joints_0 = joint_states_0[:int(0.70*num_trials_0)]
+val_joints_0 = joint_states_0[int(0.70*num_trials_0):int(0.85*num_trials_0)]
+test_joints_0 = joint_states_0[int(0.85*num_trials_0):]
 
-train_forces_3 = forces_3[:int(0.70*num_trials_3)]
-val_forces_3 = forces_3[int(0.70*num_trials_3):int(0.85*num_trials_3)]
-test_forces_3 = forces_3[int(0.85*num_trials_3):]
+train_joints_1 = joint_states_1[:int(0.70*num_trials_1)]
+val_joints_1 = joint_states_1[int(0.70*num_trials_1):int(0.85*num_trials_1)]
+test_joints_1 = joint_states_1[int(0.85*num_trials_1):]
 
-forces_train_data = np.concatenate((train_forces_0, train_forces_1, train_forces_2, train_forces_3), axis=0)
-forces_train_data_tensor = torch.tensor(forces_train_data).float().to(device)
+train_joints_2 = joint_states_2[:int(0.70*num_trials_2)]
+val_joints_2 = joint_states_2[int(0.70*num_trials_2):int(0.85*num_trials_2)]
+test_joints_2 = joint_states_2[int(0.85*num_trials_2):]
 
-forces_val_data = np.concatenate((val_forces_0, val_forces_1, val_forces_2, val_forces_3), axis=0)
-forces_val_data_tensor = torch.tensor(forces_val_data).float().to(device)
+train_joints_3 = joint_states_3[:int(0.70*num_trials_3)]
+val_joints_3 = joint_states_3[int(0.70*num_trials_3):int(0.85*num_trials_3)]
+test_joints_3 = joint_states_3[int(0.85*num_trials_3):]
 
-forces_test_data = np.concatenate((test_forces_0, test_forces_1, test_forces_2, test_forces_3), axis=0)
-forces_test_data_tensor = torch.tensor(forces_test_data).float().to(device)
+joint_state_train_data = np.concatenate((train_joints_0, train_joints_1, train_joints_2, train_joints_3), axis=0)
+joint_state_train_data_tensor = torch.tensor(joint_state_train_data).float().to(device)
 
-print(f"Forces Train data shape: {forces_train_data_tensor.shape}")
-print(f"Forces Validation data shape: {forces_val_data_tensor.shape}")
-print(f"Forces Test data shape: {forces_test_data_tensor.shape}")
+joint_state_val_data = np.concatenate((val_joints_0, val_joints_1, val_joints_2, val_joints_3), axis=0)
+joint_state_val_data_tensor = torch.tensor(joint_state_val_data).float().to(device)
+
+joint_state_test_data = np.concatenate((test_joints_0, test_joints_1, test_joints_2, test_joints_3), axis=0)
+joint_state_test_data_tensor = torch.tensor(joint_state_test_data).float().to(device)
+
+print(f"Joint State Train data shape: {joint_state_train_data_tensor.shape}")
+print(f"Joint State Validation data shape: {joint_state_val_data_tensor.shape}")
+print(f"Joint State Test data shape: {joint_state_test_data_tensor.shape}")
 
 get_gpu_memory_usage()
 
@@ -262,9 +268,9 @@ get_gpu_memory_usage()
 
 from torch.utils.data import DataLoader, TensorDataset
 
-train_dataset = TensorDataset(train_data_tensor, uncalibrated_train_data_tensor, forces_train_data_tensor, labels_train)
-val_dataset = TensorDataset(val_data_tensor, uncalibrated_val_data_tensor, forces_val_data_tensor, labels_val)
-test_dataset = TensorDataset(test_data_tensor, uncalibrated_test_data_tensor, forces_test_data_tensor, labels_test)
+train_dataset = TensorDataset(train_data_tensor, uncalibrated_train_data_tensor, joint_state_train_data_tensor, labels_train)
+val_dataset = TensorDataset(val_data_tensor, uncalibrated_val_data_tensor, joint_state_val_data_tensor, labels_val)
+test_dataset = TensorDataset(test_data_tensor, uncalibrated_test_data_tensor, joint_state_test_data_tensor, labels_test)
 
 train_loader = DataLoader(train_dataset, batch_size=2, shuffle=True)
 val_loader = DataLoader(val_dataset, batch_size=1, shuffle=False)
@@ -295,29 +301,25 @@ def plot_confusion_matrix(all_labels, all_preds, data_type, test_number=None): #
 
 # ----------- Create and train model -----------
 
-class CNNFeatureExtractor(nn.Module):
+# Note: ResNet expects (batch_size, 3, height, width) input shape, where 3 indicates the 3 color channels (RGB)
+# The input shape of the flow data is (number of trials, number of time frames, height, width), so will need to triplicate the data to get the 3 "color" channels
+
+class ResNet18FeatureExtractor(nn.Module):
     def __init__(self, output_size):
-        super(CNNFeatureExtractor, self).__init__()
-        self.conv1 = nn.Conv2d(1, 16, kernel_size=3, stride=2, padding=1) 
-        self.conv2 = nn.Conv2d(16, 32, kernel_size=3, stride=2, padding=1)  
-        self.conv3 = nn.Conv2d(32, 64, kernel_size=3, stride=2, padding=1)  
-        self.conv4 = nn.Conv2d(64, 128, kernel_size=3, stride=2, padding=1) 
-        self.fc1 = nn.Linear(128 * 6 * 8, 512)  
-        self.fc2 = nn.Linear(512, output_size)  
+        super(ResNet18FeatureExtractor, self).__init__()
+        resnet = models.resnet18(pretrained=True)
+        self.resnet = nn.Sequential(*list(resnet.children())[:-1])  # Remove the final classification layer 
+        self.fc = nn.Linear(resnet.fc.in_features, output_size)  
 
     def forward(self, x):
-        x = F.relu(self.conv1(x))
-        x = F.relu(self.conv2(x))
-        x = F.relu(self.conv3(x))
-        x = F.relu(self.conv4(x))
+        x = self.resnet(x)
         x = x.view(x.size(0), -1)  
-        z = self.fc1(x)  
-        x = self.fc2(z)
-        return x, z
-
-class ForceFeatureExtractor(nn.Module):
+        z = self.fc(x)  
+        return z
+    
+class JointAngleFeatureExtractor(nn.Module):
     def __init__(self, input_size, output_size):
-        super(ForceFeatureExtractor, self).__init__()
+        super(JointAngleFeatureExtractor, self).__init__()
         self.fc1 = nn.Linear(input_size, 64)
         self.fc2 = nn.Linear(64, 32)
         self.fc3 = nn.Linear(32, output_size)
@@ -327,39 +329,44 @@ class ForceFeatureExtractor(nn.Module):
         x = F.relu(self.fc2(x))
         z = self.fc3(x)
         return z
-
-class TransformerModel(nn.Module):
-    def __init__(self, d_model, nhead, num_encoder_layers, dim_feedforward, num_classes, force_input_size, force_output_size):
-        super(TransformerModel, self).__init__()
-        self.feature_extractor = CNNFeatureExtractor(d_model)
-        self.force_extractor = ForceFeatureExtractor(force_input_size, force_output_size)
-        self.pos_encoder = nn.Parameter(torch.zeros(1, 200, 2*d_model + force_output_size)) 
-        encoder_layers = nn.TransformerEncoderLayer(2*d_model + force_output_size, nhead, dim_feedforward) 
+    
+class ResNet18Model(nn.Module):
+    def __init__(self, d_model, nhead, num_encoder_layers, dim_feedforward, num_classes, joint_input_size, joint_output_size):
+        super(ResNet18Model, self).__init__()
+        self.feature_extractor = ResNet18FeatureExtractor(d_model)
+        self.joint_extractor = JointAngleFeatureExtractor(joint_input_size, joint_output_size)
+        self.pos_encoder = nn.Parameter(torch.zeros(1, 200, 2*d_model + joint_output_size)) 
+        encoder_layers = nn.TransformerEncoderLayer(2*d_model + joint_output_size, nhead, dim_feedforward) 
         self.transformer_encoder = nn.TransformerEncoder(encoder_layers, num_encoder_layers)
-        self.fc1 = nn.Linear(2*d_model + force_output_size, 40) 
+        self.fc1 = nn.Linear(2*d_model + joint_output_size, 40) 
         self.fc2 = nn.Linear(40, num_classes)
-        self.d_model = d_model
+        self.d_model = d_model        
 
-    def forward(self, cal_image_data, uncal_image_data, force_data): 
+    def forward(self, cal_image_data, uncal_image_data, joint_data): 
         batch_size, seq_len, _, _, = cal_image_data.shape
 
         # calibrated optical flow
-        cal_image_data = cal_image_data.view(batch_size * seq_len, 1, 96, 128)
-        cal_image_features, _ = self.feature_extractor(cal_image_data)
+        cal_image_data = cal_image_data.unsqueeze(2)  # Shape becomes (batch_size, seq_len, 1, height, width)
+        cal_image_data = cal_image_data.expand(-1, -1, 3, -1, -1)  # Shape becomes (batch_size, seq_len, 3, height, width)
+        cal_image_data = cal_image_data.view(batch_size * seq_len, 3, 96, 128)
+        cal_image_features = self.feature_extractor(cal_image_data)
         cal_image_features = cal_image_features.view(batch_size, seq_len, -1)
 
         # uncalibrated optical flow
-        uncal_image_data = uncal_image_data.view(batch_size * seq_len, 1, 96, 128)
-        uncal_image_features, _ = self.feature_extractor(uncal_image_data)
+        uncal_image_data = uncal_image_data.unsqueeze(2)  # Shape becomes (batch_size, seq_len, 1, height, width)
+        uncal_image_data = uncal_image_data.expand(-1, -1, 3, -1, -1)  # Shape becomes (batch_size, seq_len, 3, height, width)
+        uncal_image_data = uncal_image_data.view(batch_size * seq_len, 3, 96, 128)
+        uncal_image_features = self.feature_extractor(uncal_image_data)
         uncal_image_features = uncal_image_features.view(batch_size, seq_len, -1)
 
-        # wrench
-        force_data = force_data.view(batch_size * seq_len, -1)
-        force_features = self.force_extractor(force_data)
-        force_features = force_features.view(batch_size, seq_len, -1)
+        # joint states
+        joint_data = joint_data.view(batch_size * seq_len, -1)
+        joint_features = self.joint_extractor(joint_data)
+        joint_features = joint_features.view(batch_size, seq_len, -1)
 
-        combined_features = torch.cat((cal_image_features, uncal_image_features, force_features), dim=2)
-        combined_features += self.pos_encoder[:, :seq_len, :]
+        # concatenate all features
+        combined_features = torch.cat((cal_image_features, uncal_image_features, joint_features), dim=2)
+        combined_features += self.pos_encoder[:, :seq_len, :]        
 
         x = self.transformer_encoder(combined_features)
         x = x.mean(dim=1)  # Pooling over the sequence dimension
@@ -367,9 +374,10 @@ class TransformerModel(nn.Module):
         x = self.fc2(x)
         return F.softmax(x, dim=1), x  # Return both the logits and the feature vector
 
+
 # Initialize the model, loss function, and optimizer
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-model = TransformerModel(d_model=60, nhead=8, num_encoder_layers=3, dim_feedforward=2048, num_classes=4, force_input_size=6, force_output_size=24).to(device) 
+model = ResNet18Model(d_model=60, nhead=8, num_encoder_layers=3, dim_feedforward=2048, num_classes=4, joint_input_size=4, joint_output_size=16).to(device) 
 criterion = nn.CrossEntropyLoss().to(device)
 optimizer = optim.Adam(model.parameters(), lr=0.00005)
 
@@ -387,9 +395,9 @@ for epoch in range(max_epochs):
     all_preds = []
     all_labels = []
 
-    for cal_image_inputs, uncal_image_inputs, force_inputs, labels in train_loader:
+    for cal_image_inputs, uncal_image_inputs, joint_inputs, labels in train_loader:
         optimizer.zero_grad()
-        outputs, _ = model(cal_image_inputs.to(device), uncal_image_inputs.to(device), force_inputs.to(device))
+        outputs, _ = model(cal_image_inputs.to(device), uncal_image_inputs.to(device), joint_inputs.to(device))
         loss = criterion(outputs, labels.to(device))
         loss.backward()
         nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0) # gradient clipping
@@ -418,8 +426,8 @@ for epoch in range(max_epochs):
     model.eval()
     running_val_loss = 0.0
     with torch.no_grad():
-        for cal_image_inputs, uncal_image_inputs, force_inputs, labels in val_loader:
-            outputs, _ = model(cal_image_inputs.to(device), uncal_image_inputs.to(device), force_inputs.to(device))
+        for cal_image_inputs, uncal_image_inputs, joint_inputs, labels in val_loader:
+            outputs, _ = model(cal_image_inputs.to(device), uncal_image_inputs.to(device), joint_inputs.to(device))
             loss = criterion(outputs, labels.to(device))
             running_val_loss += loss.item()
     avg_val_loss = running_val_loss / len(val_loader)
@@ -471,9 +479,9 @@ def evaluate(model, test_loader, criterion, device):
     all_predictions = []
 
     with torch.no_grad():  # Disable gradient computation
-        for cal_image_inputs, uncal_image_inputs, force_inputs, labels in test_loader:
-            cal_image_inputs, uncal_image_inputs, force_inputs, labels = cal_image_inputs.to(device), uncal_image_inputs.to(device), force_inputs.to(device), labels.to(device)
-            outputs, _ = model(cal_image_inputs, uncal_image_inputs, force_inputs)
+        for cal_image_inputs, uncal_image_inputs, joint_inputs, labels in test_loader:
+            cal_image_inputs, uncal_image_inputs, joint_inputs, labels = cal_image_inputs.to(device), uncal_image_inputs.to(device), joint_inputs.to(device), labels.to(device)
+            outputs, _ = model(cal_image_inputs, uncal_image_inputs, joint_inputs)
 
             loss = criterion(outputs, labels)
             test_loss += loss.item()
@@ -528,7 +536,7 @@ def plot_losses(train_losses):
     if not os.path.exists('plots'):
         os.makedirs('plots')
     plt.savefig('plots/train_loss.png')
-    
+ 
 plot_losses(loss_values)
 
 
@@ -540,9 +548,9 @@ def extract_latent_features(model, data_loader, device):
     labels_list = []
 
     with torch.no_grad():
-        for cal_image_inputs, uncal_image_inputs, force_inputs, labels in data_loader:
-            cal_image_inputs, uncal_image_inputs, force_inputs, labels = cal_image_inputs.to(device), uncal_image_inputs.to(device), force_inputs.to(device), labels.to(device)
-            _, latent = model(cal_image_inputs, uncal_image_inputs, force_inputs)        
+        for cal_image_inputs, uncal_image_inputs, joint_inputs, labels in data_loader:
+            cal_image_inputs, uncal_image_inputs, joint_inputs, labels = cal_image_inputs.to(device), uncal_image_inputs.to(device), joint_inputs.to(device), labels.to(device)
+            _, latent = model(cal_image_inputs, uncal_image_inputs, joint_inputs)        
             latent_features.append(latent.cpu().numpy())
             labels_list.append(labels.cpu().numpy())
 
@@ -589,5 +597,3 @@ plot_tsne(latent_features, labels_list)
 
 checkpoint = torch.load('best_model/best_model.pth')
 print(f"Best model was saved at epoch {checkpoint['epoch']}")
-
-

@@ -78,8 +78,7 @@ print(f"Flow angle data for 2 layers has shape {calibrated_flow_ang_2.shape}")
 calibrated_flow_ang_3 = np.load(f'{data_path}/calibrated_flow_data_3_layers.npz')['flow_data'][:,1,:,:,:]
 print(f"Flow angle data for 3 layers has shape {calibrated_flow_ang_3.shape}")
 
-# Split the data into training and testing
-# 70% training, 20% validation, 10% testing (for 92 trials: 64 training, 18 validation, 10 testing) <--- this has changed to 70/15/15
+# Split the data into 70% training, 15% validation, and 15% testing
 num_trials_0 = calibrated_flow_mags_0.shape[0]
 num_trials_1 = calibrated_flow_mags_1.shape[0]
 num_trials_2 = calibrated_flow_mags_2.shape[0]
@@ -246,25 +245,25 @@ def plot_confusion_matrix(all_labels, all_preds, data_type, test_number=None): #
     plt.close()
 
 
-# ---------- Create and train the model ----------
+# ---------- Create and train model ----------
 
 class CNNFeatureExtractor(nn.Module):
     def __init__(self, output_size):
         super(CNNFeatureExtractor, self).__init__()
-        self.conv1 = nn.Conv2d(1, 16, kernel_size=3, stride=2, padding=1)  # (N, 16, 48, 64)
-        self.conv2 = nn.Conv2d(16, 32, kernel_size=3, stride=2, padding=1)  # (N, 32, 24, 32)
-        self.conv3 = nn.Conv2d(32, 64, kernel_size=3, stride=2, padding=1)  # (N, 64, 12, 16)
-        self.conv4 = nn.Conv2d(64, 128, kernel_size=3, stride=2, padding=1)  # (N, 128, 6, 8)
-        self.fc1 = nn.Linear(128 * 6 * 8, 512)  # Latent vector size = 512
-        self.fc2 = nn.Linear(512, output_size)  # Output size = 60
+        self.conv1 = nn.Conv2d(1, 16, kernel_size=3, stride=2, padding=1)  
+        self.conv2 = nn.Conv2d(16, 32, kernel_size=3, stride=2, padding=1)  
+        self.conv3 = nn.Conv2d(32, 64, kernel_size=3, stride=2, padding=1) 
+        self.conv4 = nn.Conv2d(64, 128, kernel_size=3, stride=2, padding=1)  
+        self.fc1 = nn.Linear(128 * 6 * 8, 512)  
+        self.fc2 = nn.Linear(512, output_size)  
 
     def forward(self, x):
         x = F.relu(self.conv1(x))
         x = F.relu(self.conv2(x))
         x = F.relu(self.conv3(x))
         x = F.relu(self.conv4(x))
-        x = x.view(x.size(0), -1)  # Flatten
-        z = self.fc1(x)  # Latent vector is dim 512
+        x = x.view(x.size(0), -1)  
+        z = self.fc1(x)  
         x = self.fc2(z)
         return x, z
 
@@ -310,7 +309,7 @@ optimizer = optim.Adam(model.parameters(), lr=0.00005)
 
 # Training loop
 max_epochs = 500
-min_epochs = 500 # 300
+min_epochs = 300 # change to 500 to disable early stopping
 loss_values = []
 best_loss = float('inf')
 early_stop_counter = 0
@@ -382,7 +381,7 @@ for epoch in range(max_epochs):
 print('Finished Training')
 
 
-# Create a video of the training confusion matricies as they update over time
+# ---------- Create training confusion matrix video ----------
 
 video_filename = 'train_confusion_matrices/train_confusion_matrix_vid.mp4'
 png_files = sorted([f for f in os.listdir('train_confusion_matrices') if f.endswith('.png')])
@@ -393,7 +392,7 @@ with imageio.get_writer(video_filename, mode='I', fps=2) as writer:
         writer.append_data(image)
 
 
-# ---------- Evaluate the model on the test set ----------
+# ---------- Determine accuracy on test data ----------
 
 def evaluate(model, test_loader, criterion, device):
     model.eval()  # Set the model to evaluation mode
@@ -438,7 +437,7 @@ model.load_state_dict(checkpoint['model_state_dict'])
 test_loss, test_accuracy, all_test_labels, all_test_predictions, final_test_number = evaluate(model, test_loader, criterion, device)
 
 
-# Create a video of the testing confusion matricies as they update over time
+# ---------- Create test confusion matrix video ----------
 
 test_video_filename = 'test_confusion_matrices/test_confusion_matrix_vid.mp4'
 png_files = sorted([f for f in os.listdir('test_confusion_matrices') if f.endswith('.png')])
@@ -463,7 +462,6 @@ def plot_losses(train_losses):
         os.makedirs('plots')
     plt.savefig('plots/train_loss.png')
 
-# Call this function after training
 plot_losses(loss_values)
 
 

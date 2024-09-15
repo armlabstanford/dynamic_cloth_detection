@@ -46,7 +46,8 @@ print('\n')
 get_gpu_memory_usage()
 
 
-# ---------- Load Data ----------
+# ---------- Load in the data ----------
+
 # Load in the optical flow npz data
 
 data_path = '/home/armlab/Documents/soft_manipulation/npz_files/single_layer_data'
@@ -81,8 +82,7 @@ uncalibrated_flow_mags_3 = np.load(f'{data_path}/uncalibrated_flow_data_3_layers
 print(f"Flow data for 3 layers has shape {uncalibrated_flow_mags_3.shape}")
 
 
-# Split the data into training and testing
-# 70% training, 20% validation, 10% testing (for 92 trials: 64 training, 18 validation, 10 testing) <--- this has changed to 70/15/15
+# Split the data into 70% training, 15% validation, and 15% testing
 num_trials_0 = calibrated_flow_mags_0.shape[0]
 num_trials_1 = calibrated_flow_mags_1.shape[0]
 num_trials_2 = calibrated_flow_mags_2.shape[0]
@@ -310,7 +310,7 @@ print(f"Joint State Test data shape: {joint_state_test_data_tensor.shape}")
 get_gpu_memory_usage()
 
 
-# ---------- Create Data Loaders ----------
+# ---------- Create the dataloaders ----------
 
 from torch.utils.data import DataLoader, TensorDataset
 
@@ -345,7 +345,7 @@ def plot_confusion_matrix(all_labels, all_preds, data_type, test_number=None): #
     plt.close()
 
 
-# ----------- Create and train resnet18 model -----------
+# ----------- Create and train model -----------
 
 # Note: ResNet expects (batch_size, 3, height, width) input shape, where 3 indicates the 3 color channels (RGB)
 # The input shape of the flow data is (number of trials, number of time frames, height, width), so will need to triplicate the data to get the 3 "color" channels
@@ -354,13 +354,13 @@ class ResNet18FeatureExtractor(nn.Module):
     def __init__(self, output_size):
         super(ResNet18FeatureExtractor, self).__init__()
         resnet = models.resnet18(pretrained=True)
-        self.resnet = nn.Sequential(*list(resnet.children())[:-1])  # Remove the final classification layer (fc)
-        self.fc = nn.Linear(resnet.fc.in_features, output_size)  # Adapt to your output size
+        self.resnet = nn.Sequential(*list(resnet.children())[:-1])  # Remove the final classification layer
+        self.fc = nn.Linear(resnet.fc.in_features, output_size)  
 
     def forward(self, x):
         x = self.resnet(x)
-        x = x.view(x.size(0), -1)  # Flatten
-        z = self.fc(x)  # Get the output features
+        x = x.view(x.size(0), -1)  
+        z = self.fc(x) 
         return z
     
 class ForceFeatureExtractor(nn.Module):
@@ -395,14 +395,14 @@ class ResNet18Model(nn.Module):
         self.feature_extractor = ResNet18FeatureExtractor(d_model)
         self.force_extractor = ForceFeatureExtractor(force_input_size, force_output_size)
         self.joint_extractor = JointAngleFeatureExtractor(joint_input_size, joint_output_size)
-        self.pos_encoder = nn.Parameter(torch.zeros(1, 200, 2*d_model + force_output_size + joint_output_size)) # use this if using uncalibrated optical flow
-        encoder_layers = nn.TransformerEncoderLayer(2*d_model + force_output_size + joint_output_size, nhead, dim_feedforward) # use this if using uncalibrated optical flow
+        self.pos_encoder = nn.Parameter(torch.zeros(1, 200, 2*d_model + force_output_size + joint_output_size)) 
+        encoder_layers = nn.TransformerEncoderLayer(2*d_model + force_output_size + joint_output_size, nhead, dim_feedforward) 
         self.transformer_encoder = nn.TransformerEncoder(encoder_layers, num_encoder_layers)
-        self.fc1 = nn.Linear(2*d_model + force_output_size + joint_output_size, 40) # use this if using uncalibrated optical flow
+        self.fc1 = nn.Linear(2*d_model + force_output_size + joint_output_size, 40) 
         self.fc2 = nn.Linear(40, num_classes)
         self.d_model = d_model        
 
-    def forward(self, cal_image_data, uncal_image_data, force_data, joint_data): # for calibrated optical flow, uncalibrated optical flow, wrench, and joint states
+    def forward(self, cal_image_data, uncal_image_data, force_data, joint_data): 
         batch_size, seq_len, _, _, = cal_image_data.shape
 
         # calibrated optical flow
@@ -449,7 +449,7 @@ optimizer = optim.Adam(model.parameters(), lr=0.00005)
 
 # Training loop
 max_epochs = 500
-min_epochs = 500 # 300
+min_epochs = 300 # change to 500 to disable early stopping
 loss_values = []
 best_loss = float('inf')
 early_stop_counter = 0
@@ -523,7 +523,6 @@ print('Finished Training')
 
 # ---------- Create training confusion matrix video ----------
 
-# Create a video of the training confusion matricies as they update over time
 video_filename = 'train_confusion_matrices/train_confusion_matrix_vid.mp4'
 png_files = sorted([f for f in os.listdir('train_confusion_matrices') if f.endswith('.png')])
 png_files.sort(key=lambda x: int(x.split('_')[-1].split('.')[0]))
@@ -533,7 +532,7 @@ with imageio.get_writer(video_filename, mode='I', fps=2) as writer:
         writer.append_data(image)
 
 
-# ---------- Determine Accuracy on Test Data ----------
+# ---------- Determine accuracy on test data ----------
 
 def evaluate(model, test_loader, criterion, device):
     model.eval()  # Set the model to evaluation mode
@@ -579,7 +578,7 @@ test_loss, test_accuracy, all_test_labels, all_test_predictions, final_test_numb
 
 
 # ---------- Create test confusion matrix video ----------
-# Create a video of the testing confusion matricies as they update over time
+
 test_video_filename = 'test_confusion_matrices/test_confusion_matrix_vid.mp4'
 png_files = sorted([f for f in os.listdir('test_confusion_matrices') if f.endswith('.png')])
 png_files.sort(key=lambda x: int(x.split('_')[-1].split('.')[0]))
@@ -603,8 +602,6 @@ def plot_losses(train_losses):
         os.makedirs('plots')
     plt.savefig('plots/train_loss.png')
  
-
-# Call this function after training
 plot_losses(loss_values)
 
 

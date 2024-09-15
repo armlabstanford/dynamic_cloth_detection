@@ -6,10 +6,10 @@ from torch.utils.data import DataLoader, TensorDataset
 from sklearn.manifold import TSNE
 import numpy as np
 import matplotlib.pyplot as plt
-import pandas as pd
 from sklearn.metrics import confusion_matrix, ConfusionMatrixDisplay
 import imageio
 import os
+import pandas as pd
 
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -212,7 +212,9 @@ uncalibrated_test_data_tensor = torch.tensor(uncalibrated_test_data).float().to(
 
 get_gpu_memory_usage()
 
+
 # Load wrench data
+
 forces_0 = np.load(f'{data_path}/wrench_data_0_layers.npz')['wrench_data']
 print(f"Wrench data for 0 layers has shape {forces_0.shape}")
 
@@ -258,7 +260,7 @@ print(f"Forces Test data shape: {forces_test_data_tensor.shape}")
 get_gpu_memory_usage()
 
 
-# ---------- Create the dataloaders ----------
+# ---------- Make Data Loaders ----------
 
 from torch.utils.data import DataLoader, TensorDataset
 
@@ -293,25 +295,30 @@ def plot_confusion_matrix(all_labels, all_preds, data_type, test_number=None): #
     plt.close()
 
 
-# ----------- Create and train model -----------
+# ---------- Create and train model ----------
 
 class CNNFeatureExtractor(nn.Module):
     def __init__(self, output_size):
         super(CNNFeatureExtractor, self).__init__()
-        self.conv1 = nn.Conv2d(1, 16, kernel_size=3, stride=2, padding=1) 
+        self.conv1 = nn.Conv2d(1, 16, kernel_size=3, stride=2, padding=1)  
+        self.bn1 = nn.BatchNorm2d(16)
         self.conv2 = nn.Conv2d(16, 32, kernel_size=3, stride=2, padding=1)  
+        self.bn2 = nn.BatchNorm2d(32)
         self.conv3 = nn.Conv2d(32, 64, kernel_size=3, stride=2, padding=1)  
-        self.conv4 = nn.Conv2d(64, 128, kernel_size=3, stride=2, padding=1) 
+        self.bn3 = nn.BatchNorm2d(64)
+        self.conv4 = nn.Conv2d(64, 128, kernel_size=3, stride=2, padding=1)  
+        self.bn4 = nn.BatchNorm2d(128)
         self.fc1 = nn.Linear(128 * 6 * 8, 512)  
+        self.dropout = nn.Dropout(0.5)
         self.fc2 = nn.Linear(512, output_size)  
 
     def forward(self, x):
-        x = F.relu(self.conv1(x))
-        x = F.relu(self.conv2(x))
-        x = F.relu(self.conv3(x))
-        x = F.relu(self.conv4(x))
+        x = F.relu(self.bn1(self.conv1(x)))
+        x = F.relu(self.bn2(self.conv2(x)))
+        x = F.relu(self.bn3(self.conv3(x)))
+        x = F.relu(self.bn4(self.conv4(x)))
         x = x.view(x.size(0), -1)  
-        z = self.fc1(x)  
+        z = self.dropout(self.fc1(x))  
         x = self.fc2(z)
         return x, z
 
@@ -376,7 +383,7 @@ optimizer = optim.Adam(model.parameters(), lr=0.00005)
 
 # Training loop
 max_epochs = 500
-min_epochs = 300 # change to 500 to disable early stopping
+min_epochs = 350 # change to 500 to disable early stopping
 loss_values = []
 best_loss = float('inf')
 early_stop_counter = 0
@@ -401,7 +408,7 @@ for epoch in range(max_epochs):
         all_preds.extend(preds)
         all_labels.extend(labels.cpu().numpy())
 
-    # Condition to reset the optimizer state
+    # Condition to reset the optimizer state 
     if epoch % 10 == 0:
         model_state = model.state_dict()
         optimizer = optim.Adam(model.parameters(), lr=0.00005)
@@ -528,7 +535,7 @@ def plot_losses(train_losses):
     if not os.path.exists('plots'):
         os.makedirs('plots')
     plt.savefig('plots/train_loss.png')
-    
+
 plot_losses(loss_values)
 
 
@@ -589,5 +596,3 @@ plot_tsne(latent_features, labels_list)
 
 checkpoint = torch.load('best_model/best_model.pth')
 print(f"Best model was saved at epoch {checkpoint['epoch']}")
-
-

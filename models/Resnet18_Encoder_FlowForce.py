@@ -2,18 +2,20 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 import torch.nn.functional as F
+from torchvision import models
 from torch.utils.data import DataLoader, TensorDataset
 from sklearn.manifold import TSNE
 import numpy as np
 import matplotlib.pyplot as plt
-import pandas as pd
 from sklearn.metrics import confusion_matrix, ConfusionMatrixDisplay
 import imageio
 import os
-
+import pandas as pd
+ 
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 print(device)
+
 
 torch.cuda.empty_cache()
 
@@ -78,6 +80,7 @@ print(f"Flow data for 2 layers has shape {uncalibrated_flow_mags_2.shape}")
 
 uncalibrated_flow_mags_3 = np.load(f'{data_path}/uncalibrated_flow_data_3_layers.npz')['flow_data'][:,0,:,:,:]
 print(f"Flow data for 3 layers has shape {uncalibrated_flow_mags_3.shape}")
+
 
 # Split the data into 70% training, 15% validation, and 15% testing
 num_trials_0 = calibrated_flow_mags_0.shape[0]
@@ -210,7 +213,9 @@ uncalibrated_val_data_tensor = torch.tensor(uncalibrated_val_data).float().to(de
 uncalibrated_test_data = np.concatenate((uncalibrated_test_0, uncalibrated_test_1, uncalibrated_test_2, uncalibrated_test_3), axis=0)
 uncalibrated_test_data_tensor = torch.tensor(uncalibrated_test_data).float().to(device)
 
+
 get_gpu_memory_usage()
+
 
 # Load wrench data
 forces_0 = np.load(f'{data_path}/wrench_data_0_layers.npz')['wrench_data']
@@ -295,26 +300,22 @@ def plot_confusion_matrix(all_labels, all_preds, data_type, test_number=None): #
 
 # ----------- Create and train model -----------
 
-class CNNFeatureExtractor(nn.Module):
+# Note: ResNet expects (batch_size, 3, height, width) input shape, where 3 indicates the 3 color channels (RGB)
+# The input shape of the flow data is (number of trials, number of time frames, height, width), so need to triplicate the data to get the 3 "color" channels
+
+class ResNet18FeatureExtractor(nn.Module):
     def __init__(self, output_size):
-        super(CNNFeatureExtractor, self).__init__()
-        self.conv1 = nn.Conv2d(1, 16, kernel_size=3, stride=2, padding=1) 
-        self.conv2 = nn.Conv2d(16, 32, kernel_size=3, stride=2, padding=1)  
-        self.conv3 = nn.Conv2d(32, 64, kernel_size=3, stride=2, padding=1)  
-        self.conv4 = nn.Conv2d(64, 128, kernel_size=3, stride=2, padding=1) 
-        self.fc1 = nn.Linear(128 * 6 * 8, 512)  
-        self.fc2 = nn.Linear(512, output_size)  
+        super(ResNet18FeatureExtractor, self).__init__()
+        resnet = models.resnet18(pretrained=True)
+        self.resnet = nn.Sequential(*list(resnet.children())[:-1])  # Remove the final classification layer
+        self.fc = nn.Linear(resnet.fc.in_features, output_size)  
 
     def forward(self, x):
-        x = F.relu(self.conv1(x))
-        x = F.relu(self.conv2(x))
-        x = F.relu(self.conv3(x))
-        x = F.relu(self.conv4(x))
-        x = x.view(x.size(0), -1)  
-        z = self.fc1(x)  
-        x = self.fc2(z)
-        return x, z
-
+        x = self.resnet(x)
+        x = x.view(x.size(0), -1) 
+        z = self.fc(x)  
+        return z
+    
 class ForceFeatureExtractor(nn.Module):
     def __init__(self, input_size, output_size):
         super(ForceFeatureExtractor, self).__init__()
@@ -327,30 +328,35 @@ class ForceFeatureExtractor(nn.Module):
         x = F.relu(self.fc2(x))
         z = self.fc3(x)
         return z
-
-class TransformerModel(nn.Module):
+    
+    
+class ResNet18Model(nn.Module):
     def __init__(self, d_model, nhead, num_encoder_layers, dim_feedforward, num_classes, force_input_size, force_output_size):
-        super(TransformerModel, self).__init__()
-        self.feature_extractor = CNNFeatureExtractor(d_model)
+        super(ResNet18Model, self).__init__()
+        self.feature_extractor = ResNet18FeatureExtractor(d_model)
         self.force_extractor = ForceFeatureExtractor(force_input_size, force_output_size)
         self.pos_encoder = nn.Parameter(torch.zeros(1, 200, 2*d_model + force_output_size)) 
-        encoder_layers = nn.TransformerEncoderLayer(2*d_model + force_output_size, nhead, dim_feedforward) 
+        encoder_layers = nn.TransformerEncoderLayer(2*d_model + force_output_size, nhead, dim_feedforward)
         self.transformer_encoder = nn.TransformerEncoder(encoder_layers, num_encoder_layers)
         self.fc1 = nn.Linear(2*d_model + force_output_size, 40) 
         self.fc2 = nn.Linear(40, num_classes)
-        self.d_model = d_model
+        self.d_model = d_model        
 
     def forward(self, cal_image_data, uncal_image_data, force_data): 
         batch_size, seq_len, _, _, = cal_image_data.shape
 
         # calibrated optical flow
-        cal_image_data = cal_image_data.view(batch_size * seq_len, 1, 96, 128)
-        cal_image_features, _ = self.feature_extractor(cal_image_data)
+        cal_image_data = cal_image_data.unsqueeze(2)  # Shape becomes (batch_size, seq_len, 1, height, width)
+        cal_image_data = cal_image_data.expand(-1, -1, 3, -1, -1)  # Shape becomes (batch_size, seq_len, 3, height, width)
+        cal_image_data = cal_image_data.view(batch_size * seq_len, 3, 96, 128)
+        cal_image_features = self.feature_extractor(cal_image_data)
         cal_image_features = cal_image_features.view(batch_size, seq_len, -1)
 
         # uncalibrated optical flow
-        uncal_image_data = uncal_image_data.view(batch_size * seq_len, 1, 96, 128)
-        uncal_image_features, _ = self.feature_extractor(uncal_image_data)
+        uncal_image_data = uncal_image_data.unsqueeze(2)  # Shape becomes (batch_size, seq_len, 1, height, width)
+        uncal_image_data = uncal_image_data.expand(-1, -1, 3, -1, -1)  # Shape becomes (batch_size, seq_len, 3, height, width)
+        uncal_image_data = uncal_image_data.view(batch_size * seq_len, 3, 96, 128)
+        uncal_image_features = self.feature_extractor(uncal_image_data)
         uncal_image_features = uncal_image_features.view(batch_size, seq_len, -1)
 
         # wrench
@@ -358,8 +364,9 @@ class TransformerModel(nn.Module):
         force_features = self.force_extractor(force_data)
         force_features = force_features.view(batch_size, seq_len, -1)
 
+        # concatenate all features
         combined_features = torch.cat((cal_image_features, uncal_image_features, force_features), dim=2)
-        combined_features += self.pos_encoder[:, :seq_len, :]
+        combined_features += self.pos_encoder[:, :seq_len, :]        
 
         x = self.transformer_encoder(combined_features)
         x = x.mean(dim=1)  # Pooling over the sequence dimension
@@ -367,9 +374,10 @@ class TransformerModel(nn.Module):
         x = self.fc2(x)
         return F.softmax(x, dim=1), x  # Return both the logits and the feature vector
 
+
 # Initialize the model, loss function, and optimizer
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-model = TransformerModel(d_model=60, nhead=8, num_encoder_layers=3, dim_feedforward=2048, num_classes=4, force_input_size=6, force_output_size=24).to(device) 
+model = ResNet18Model(d_model=60, nhead=8, num_encoder_layers=3, dim_feedforward=2048, num_classes=4, force_input_size=6, force_output_size=24).to(device) 
 criterion = nn.CrossEntropyLoss().to(device)
 optimizer = optim.Adam(model.parameters(), lr=0.00005)
 
@@ -528,7 +536,7 @@ def plot_losses(train_losses):
     if not os.path.exists('plots'):
         os.makedirs('plots')
     plt.savefig('plots/train_loss.png')
-    
+ 
 plot_losses(loss_values)
 
 
@@ -589,5 +597,3 @@ plot_tsne(latent_features, labels_list)
 
 checkpoint = torch.load('best_model/best_model.pth')
 print(f"Best model was saved at epoch {checkpoint['epoch']}")
-
-

@@ -44,7 +44,7 @@ print('\n')
 get_gpu_memory_usage()
 
 
-# ---------- Load Data ----------
+# ---------- Load in the data ----------
 
 # Load in the optical flow npz data
 
@@ -79,8 +79,7 @@ print(f"Flow data for 2 layers has shape {uncalibrated_flow_mags_2.shape}")
 uncalibrated_flow_mags_3 = np.load(f'{data_path}/uncalibrated_flow_data_3_layers.npz')['flow_data'][:,0,:,:,:]
 print(f"Flow data for 3 layers has shape {uncalibrated_flow_mags_3.shape}")
 
-# Split the data into training and testing
-# 70% training, 20% validation, 10% testing (for 92 trials: 64 training, 18 validation, 10 testing) <--- this has changed to 70/15/15
+# Split the data into 70% training, 15% validation, and 15% testing
 num_trials_0 = calibrated_flow_mags_0.shape[0]
 num_trials_1 = calibrated_flow_mags_1.shape[0]
 num_trials_2 = calibrated_flow_mags_2.shape[0]
@@ -320,7 +319,7 @@ val_loader = DataLoader(val_dataset, batch_size=1, shuffle=False)
 test_loader = DataLoader(test_dataset, batch_size=1, shuffle=False)
 
 
-# ---------- Set up confusion matrix plotting ----------
+# ---------- Set up confusion matrices ----------
 
 if not os.path.exists('train_confusion_matrices'):
     os.makedirs('train_confusion_matrices')
@@ -347,25 +346,25 @@ def plot_confusion_matrix(all_labels, all_preds, data_type, test_number=None): #
 class CNNFeatureExtractor(nn.Module):
     def __init__(self, output_size):
         super(CNNFeatureExtractor, self).__init__()
-        self.conv1 = nn.Conv2d(1, 16, kernel_size=3, stride=2, padding=1)  # (N, 16, 48, 64)
+        self.conv1 = nn.Conv2d(1, 16, kernel_size=3, stride=2, padding=1)  
         self.bn1 = nn.BatchNorm2d(16)
-        self.conv2 = nn.Conv2d(16, 32, kernel_size=3, stride=2, padding=1)  # (N, 32, 24, 32)
+        self.conv2 = nn.Conv2d(16, 32, kernel_size=3, stride=2, padding=1)  
         self.bn2 = nn.BatchNorm2d(32)
-        self.conv3 = nn.Conv2d(32, 64, kernel_size=3, stride=2, padding=1)  # (N, 64, 12, 16)
+        self.conv3 = nn.Conv2d(32, 64, kernel_size=3, stride=2, padding=1)  
         self.bn3 = nn.BatchNorm2d(64)
-        self.conv4 = nn.Conv2d(64, 128, kernel_size=3, stride=2, padding=1)  # (N, 128, 6, 8)
+        self.conv4 = nn.Conv2d(64, 128, kernel_size=3, stride=2, padding=1)  
         self.bn4 = nn.BatchNorm2d(128)
-        self.fc1 = nn.Linear(128 * 6 * 8, 512)  # Latent vector size = 512
+        self.fc1 = nn.Linear(128 * 6 * 8, 512)  
         self.dropout = nn.Dropout(0.5)
-        self.fc2 = nn.Linear(512, output_size)  # Output size = 60
+        self.fc2 = nn.Linear(512, output_size)  
 
     def forward(self, x):
         x = F.relu(self.bn1(self.conv1(x)))
         x = F.relu(self.bn2(self.conv2(x)))
         x = F.relu(self.bn3(self.conv3(x)))
         x = F.relu(self.bn4(self.conv4(x)))
-        x = x.view(x.size(0), -1)  # Flatten
-        z = self.dropout(self.fc1(x))  # Latent vector is dim 512
+        x = x.view(x.size(0), -1)  
+        z = self.dropout(self.fc1(x))  
         x = self.fc2(z)
         return x, z
 
@@ -442,14 +441,14 @@ class TransformerModel(nn.Module):
 
 # Initialize the model, loss function, and optimizer
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-model = TransformerModel(d_model=60, nhead=8, num_encoder_layers=3, dim_feedforward=2048, num_classes=4, force_input_size=6, force_output_size=24, joint_input_size=4, joint_output_size=16).to(device) # use this if using uncalibrated optical flow
+model = TransformerModel(d_model=60, nhead=8, num_encoder_layers=3, dim_feedforward=2048, num_classes=4, force_input_size=6, force_output_size=24, joint_input_size=4, joint_output_size=16).to(device) 
 criterion = nn.CrossEntropyLoss().to(device)
 optimizer = optim.Adam(model.parameters(), lr=0.00005)
 
 
 # Training loop
 max_epochs = 500
-min_epochs = 500 # 350
+min_epochs = 350 # change to 500 to disable early stopping
 loss_values = []
 best_loss = float('inf')
 early_stop_counter = 0
@@ -474,7 +473,7 @@ for epoch in range(max_epochs):
         all_preds.extend(preds)
         all_labels.extend(labels.cpu().numpy())
 
-    # Condition to reset the optimizer state (e.g., halfway through training)
+    # Condition to reset the optimizer state
     if epoch % 10 == 0:
         model_state = model.state_dict()
         optimizer = optim.Adam(model.parameters(), lr=0.00005)
@@ -521,7 +520,7 @@ for epoch in range(max_epochs):
 print('Finished Training')
 
 
-# ---------- Training confusion matricies ----------
+# ---------- Create training confusion matrix video ----------
 
 video_filename = 'train_confusion_matrices/train_confusion_matrix_vid.mp4'
 png_files = sorted([f for f in os.listdir('train_confusion_matrices') if f.endswith('.png')])
@@ -577,9 +576,8 @@ model.load_state_dict(checkpoint['model_state_dict'])
 test_loss, test_accuracy, all_test_labels, all_test_predictions, final_test_number = evaluate(model, test_loader, criterion, device)
 
 
-# ---------- Testing confusion matricies ----------
+# ---------- Create test confusion matrix video ----------
 
-# Create a video of the testing confusion matricies as they update over time
 test_video_filename = 'test_confusion_matrices/test_confusion_matrix_vid.mp4'
 png_files = sorted([f for f in os.listdir('test_confusion_matrices') if f.endswith('.png')])
 png_files.sort(key=lambda x: int(x.split('_')[-1].split('.')[0]))
@@ -603,11 +601,10 @@ def plot_losses(train_losses):
         os.makedirs('plots')
     plt.savefig('plots/train_loss.png')
 
-# Call this function after training
 plot_losses(loss_values)
 
 
-# ---------- Plot T-SNE ----------
+# ---------- Extract latent features and visualize with T-SNE ----------
 
 def extract_latent_features(model, data_loader, device):
     model.eval()

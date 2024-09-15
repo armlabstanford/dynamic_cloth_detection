@@ -63,8 +63,7 @@ print(f"Flow data for 2 layers has shape {calibrated_flow_mags_2.shape}")
 calibrated_flow_mags_3 = np.load(f'{data_path}/calibrated_flow_data_3_layers.npz')['flow_data'][:,0,:,:,:]
 print(f"Flow data for 3 layers has shape {calibrated_flow_mags_3.shape}")
 
-# Split the data into training and testing
-# 70% training, 20% validation, 10% testing (for 92 trials: 64 training, 18 validation, 10 testing) <--- this has changed to 70/15/15
+# Split the data into 70% training, 15% validation, and 15% testing
 num_trials_0 = calibrated_flow_mags_0.shape[0]
 num_trials_1 = calibrated_flow_mags_1.shape[0]
 num_trials_2 = calibrated_flow_mags_2.shape[0]
@@ -147,7 +146,7 @@ print(f"Test Labels Shape: {labels_test.shape}")
 get_gpu_memory_usage()
 
 
-# ---------- Create Data Loaders ----------
+# ---------- Create the dataloaders ----------
 
 from torch.utils.data import DataLoader, TensorDataset
 
@@ -187,24 +186,24 @@ def plot_confusion_matrix(all_labels, all_preds, data_type, test_number=None): #
 class CNNFeatureExtractor(nn.Module):
     def __init__(self, output_size):
         super(CNNFeatureExtractor, self).__init__()
-        self.conv1 = nn.Conv2d(1, 16, kernel_size=3, stride=2, padding=1)  # (N, 16, 48, 64)
+        self.conv1 = nn.Conv2d(1, 16, kernel_size=3, stride=2, padding=1)  
         self.bn1 = nn.BatchNorm2d(16)
-        self.conv2 = nn.Conv2d(16, 32, kernel_size=3, stride=2, padding=1)  # (N, 32, 24, 32)
+        self.conv2 = nn.Conv2d(16, 32, kernel_size=3, stride=2, padding=1)  
         self.bn2 = nn.BatchNorm2d(32)   
-        self.conv3 = nn.Conv2d(32, 64, kernel_size=3, stride=2, padding=1)  # (N, 64, 12, 16)
+        self.conv3 = nn.Conv2d(32, 64, kernel_size=3, stride=2, padding=1)  
         self.bn3 = nn.BatchNorm2d(64)
-        self.conv4 = nn.Conv2d(64, 128, kernel_size=3, stride=2, padding=1)  # (N, 128, 6, 8)
+        self.conv4 = nn.Conv2d(64, 128, kernel_size=3, stride=2, padding=1)  
         self.bn4 = nn.BatchNorm2d(128)
-        self.fc1 = nn.Linear(128 * 6 * 8, 512)  # Latent vector size = 512
+        self.fc1 = nn.Linear(128 * 6 * 8, 512)  
         self.dropout = nn.Dropout(0.5)
-        self.fc2 = nn.Linear(512, output_size)  # Output size = 60
+        self.fc2 = nn.Linear(512, output_size)  
 
     def forward(self, x):
         x = F.relu(self.bn1(self.conv1(x)))
         x = F.relu(self.bn2(self.conv2(x)))
         x = F.relu(self.bn3(self.conv3(x)))
         x = F.relu(self.bn4(self.conv4(x)))
-        x = x.view(x.size(0), -1)  # Flatten
+        x = x.view(x.size(0), -1)  
         z = self.dropout(self.fc1(x))
         x = self.fc2(z)
         return x, z
@@ -246,7 +245,7 @@ optimizer = optim.Adam(model.parameters(), lr=0.00005)
 
 # Training loop
 max_epochs = 500
-min_epochs = 500 # 300
+min_epochs = 300 # change to 500 to disable early stopping
 loss_values = []
 best_loss = float('inf')
 early_stop_counter = 0
@@ -400,11 +399,10 @@ def plot_losses(train_losses):
         os.makedirs('plots')
     plt.savefig('plots/train_loss.png')
 
-# Call this function after training
 plot_losses(loss_values)
 
 
-# ---------- Create T-SNE plot of the latent vectors ----------
+# ---------- Extract latent features and visualize with T-SNE ----------
 
 def extract_latent_features(model, data_loader, device):
     model.eval()
