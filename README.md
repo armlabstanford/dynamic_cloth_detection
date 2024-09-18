@@ -11,7 +11,7 @@ This repo contains code for the Dynamic Cloth Detection Project
 
 View our [project website](https://armlabstanford.github.io/dynamic-cloth-detection)
 
-View our paper on [Arxiv]([https://arm.stanford.edu/people/camille-chungyoun](https://arxiv.org/abs/2409.09849))
+View our paper on [Arxiv]((https://arxiv.org/abs/2409.09849))
 
 ## Repo Structure
 
